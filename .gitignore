@@ -1,0 +1,14 @@
+# macOS system files
+.DS_Store
+._.DS_Store
+
+# Unwanted hidden files
+._* 
+
+# Samba-related files
+.smbdelete*
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
