@@ -1,4 +1,6 @@
 import polars as pl
+import numpy as np
+import pandas as pd
 import typer
 import os
 import csv
@@ -14,24 +16,21 @@ warnings.filterwarnings('ignore', category=UserWarning, module='tensorflow')
 import pickle
 import tensorflow as tf
 import multiprocessing
-import pandas as pd
 from collections import defaultdict
+import matplotlib.pyplot as plt
+import seaborn as sns
+from matplotlib.gridspec import GridSpec
 
 from tensorflow.keras.models import load_model
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 
 from scripts.preprocess_reads import parallel_preprocess_data, find_sequence_files, extract_and_bin_reads, convert_tsv_to_parquet
 from scripts.plot_read_len_distr import plot_read_len_distr
-from scripts.extract_annotated_seqs import extract_annotated_full_length_seqs, extract_annotated_seq_ends
+from scripts.extract_annotated_seqs import extract_annotated_full_length_seqs
 from scripts.annotate_new_data import annotate_new_data
 from scripts.visualize_annot import save_plots_to_pdf
-from scripts.export_annotations import process_read_ends_in_chunks_and_save, process_full_length_reads_in_chunks_and_save, load_checkpoint, save_checkpoint
-from scripts.simulate_training_data import prepare_training_data
-from scripts.train_model import train_model, ReadAnnotator
+from scripts.export_annotations import process_full_length_reads_in_chunks_and_save, load_checkpoint, save_checkpoint
 from scripts.trained_models import trained_models, seq_orders
-from scripts.correct_UMI import process_and_correct_umis
-from scripts.correct_barcodes import barcode_correction_pipeline
-from scripts.demultiplex import assign_cell_id_in_chunks
 from scripts.correct_barcodes import generate_barcodes_stats_pdf
 from scripts.demultiplex import generate_demux_stats_pdf
 
@@ -78,122 +77,6 @@ def readlengthDist(output_dir: str):
     plot_read_len_distr(output_dir + "/full_length_pp_fa", output_dir + "/plots")
 
 ############# inspect selected reads for annotations ################
-
-# logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-# logger = logging.getLogger(__name__)
-
-# def load_read_index(index_file_path):
-#     """Load the read index from the read_index.tsv file."""
-#     read_index = {}
-#     with open(index_file_path, 'r') as file:
-#         reader = csv.reader(file, delimiter='\t')
-#         next(reader)  # Skip header
-#         for row in reader:
-#             read_name, pkl_file, read_idx, read_length = row
-#             read_index[read_name] = (pkl_file, int(read_idx))
-#     return read_index
-
-# @app.command()
-# def visualize(model_name: str, 
-#               output_dir: str,
-#               num_reads: int = typer.Option(None, help="Number of reads to randomly visualize from each .pkl file."),
-#               portion: str = typer.Option("full", help="Whether to scan full-reads or just the ends"),
-#               end_length: int = typer.Option(250, help="How many bases to be scanned from the ends"),
-#               read_names: str = typer.Option(None, help="Comma-separated list of read names to visualize")):
-    
-#     # model = load_model("models/" + model_name + ".h5")
-#     model = "models/" + model_name + ".h5"
-#     with open("models/" + model_name + "_lbl_bin.pkl", "rb") as f:
-#         label_binarizer = pickle.load(f)
-
-#     seq_order, sequences, barcodes, UMIs = seq_orders("utils/seq_orders.tsv", model_name)
-
-#     palette = ['red', 'blue', 'green', 'purple', 'pink', 'cyan', 'magenta', 'orange', 'brown']
-#     colors = {'random_s': 'black', 'random_e': 'black', 'cDNA': 'gray', 'polyT': 'orange', 'polyA': 'orange'}
-
-#     i = 0
-#     for element in seq_order:
-#         if element not in ['random_s', 'random_e', 'cDNA', 'polyT', 'polyA']:
-#             colors[element] = palette[i % len(palette)]  # Cycle through the palette
-#             i += 1
-
-#     # Load the read index from read_index.tsv
-#     index_file_path = os.path.join(output_dir, "full_length_pp_fa/read_index.tsv")
-#     read_index = load_read_index(index_file_path)
-
-#     if portion == "full":
-#         folder_path = os.path.join(output_dir, "full_length_pp_fa")
-#         pdf_filename = os.path.join(output_dir, "full_read_annots.pdf")
-#     else:
-#         folder_path = os.path.join(output_dir, "read_ends_pp_fa")
-#         pdf_filename = os.path.join(output_dir, "read_ends_annots.pdf")
-
-#     # Check conditions for num_reads and read_names
-#     if not num_reads and not read_names:
-#         logger.error("You must either provide a value for 'num_reads' or specify 'read_names'.")
-#         raise ValueError("You must either provide a value for 'num_reads' or specify 'read_names'.")
-
-#     selected_reads = []
-#     selected_read_names = []
-#     selected_read_lengths = []
-
-#     # If read_names are provided, visualize those specific reads
-#     if read_names:
-#         read_names_list = read_names.split(",")
-#         missing_reads = []
-
-#         for read_name in read_names_list:
-#             if read_name in read_index:
-#                 pkl_file, read_idx = read_index[read_name]
-
-#                 # Load the appropriate pkl file and retrieve the read by index
-#                 with open(os.path.join(folder_path, pkl_file), 'rb') as f:
-#                     reads_data = pickle.load(f)
-#                     selected_reads.append(reads_data['reads'][read_idx])
-#                     selected_read_names.append(read_name)
-#                     selected_read_lengths.append(reads_data['read_lengths'][read_idx])
-#             else:
-#                 missing_reads.append(read_name)
-
-#         # Log missing reads
-#         if missing_reads:
-#             logger.warning(f"The following reads were not found in the index: {', '.join(missing_reads)}")
-
-#     # If num_reads is provided, randomly select num_reads reads from the index
-#     elif num_reads:
-#         all_read_names = list(read_index.keys())
-#         selected_read_names = random.sample(all_read_names, min(num_reads, len(all_read_names)))
-
-#         for read_name in selected_read_names:
-#             pkl_file, read_idx = read_index[read_name]
-
-#             # Load the appropriate pkl file and retrieve the read by index
-#             with open(os.path.join(folder_path, pkl_file), 'rb') as f:
-#                 reads_data = pickle.load(f)
-#                 selected_reads.append(reads_data['reads'][read_idx])
-#                 selected_read_lengths.append(reads_data['read_lengths'][read_idx])
-
-#     # Check if there are any selected reads to process
-#     if not selected_reads:
-#         logger.warning(f"No reads were selected. Skipping inference.")
-#         return  # Exit if no reads are selected
-
-#     # Perform annotation and plotting
-#     if portion == "full":
-#         predictions = annotate_new_data(selected_reads, model)
-#         annotated_reads = extract_annotated_full_length_seqs(selected_reads, predictions, selected_read_lengths, 
-#                                                              label_binarizer, seq_order, n_jobs=1)
-#         save_plots_to_pdf(selected_reads, annotated_reads, selected_read_names, 
-#                           pdf_filename, colors, chars_per_line=150)
-#     else:
-#         read_ends = random.sample(reads_data['read_ends'], min(num_reads * 2, len(reads_data['read_ends'])))
-#         indices = [reads_data['read_ends'].index(read) for read in read_ends]
-#         read_end_names = [reads_data['read_end_names'][i] for i in indices]
-#         actual_lengths = [reads_data['actual_lengths'][i] for i in indices]
-
-#         predictions = annotate_new_data(read_ends, model)
-#         annotated_reads = extract_annotated_seq_ends(read_ends, predictions, label_binarizer, actual_lengths, end_length, seq_order)
-#         save_plots_to_pdf(read_ends, annotated_reads, read_end_names, pdf_filename, colors, chars_per_line=150)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -309,124 +192,8 @@ def visualize(model_name: str,
             selected_reads, predictions, selected_read_lengths, label_binarizer, seq_order, barcodes, n_jobs=1
         )
         save_plots_to_pdf(selected_reads, annotated_reads, selected_read_names, pdf_filename, colors, chars_per_line=150)
-    else:
-        read_ends = [read[:end_length] for read in selected_reads] + [read[-end_length:] for read in selected_reads]
-        predictions = annotate_new_data(read_ends, model)
-        annotated_reads = extract_annotated_seq_ends(
-            read_ends, predictions, label_binarizer, selected_read_lengths, end_length, seq_order
-        )
-        save_plots_to_pdf(read_ends, annotated_reads, selected_read_names, pdf_filename, colors, chars_per_line=150)
-
+    
 ############# Annotate all the reads ################
-
-# # Modified function to estimate the average read length from the bin name
-# def estimate_average_read_length_from_bin(bin_name):
-#     bounds = bin_name.replace("bp", "").split("_")
-#     lower_bound = int(bounds[0])
-#     upper_bound = int(bounds[1])
-#     return (lower_bound + upper_bound) / 2
-
-# # Function to process reads in chunks and resume from where it left off
-# def load_and_process_reads_by_bin(bin_name, chunk_start, folder, chunk_size, model, label_binarizer, seq_order, 
-#                                   output_file, add_header, checkpoint_file):
-    
-#     estimated_avg_length = estimate_average_read_length_from_bin(bin_name)
-#     bin_file_path = os.path.join(folder, f"{bin_name}.pkl")
-
-#     # Check if the bin file exists in this folder
-#     if not os.path.exists(bin_file_path):
-#         print(f"Skipping folder {folder} as it doesn't contain {bin_name}.pkl")
-#         return
-            
-#     # Load the reads from the .pkl file
-#     with open(bin_file_path, "rb") as f:
-#         reads_data = pickle.load(f)
-#         reads = reads_data['reads']
-#         read_names = reads_data['read_names']
-#         read_lengths = reads_data['read_lengths']
-            
-#     dynamic_chunk_size = int(chunk_size * (500 / estimated_avg_length))  # Scale chunk size
-            
-#     # Start processing from the last chunk if available, or from the beginning
-#     process_full_length_reads_in_chunks_and_save(reads, read_names, model, label_binarizer, 
-#                                                  read_lengths, seq_order, dynamic_chunk_size, 
-#                                                  bin_name, add_header, output_path=output_file, 
-#                                                  chunk_start=chunk_start, checkpoint_file=checkpoint_file)                  
-
-# @app.command()
-# def annotate_reads(
-#     model_name: str, 
-#     output_dir: str, 
-#     chunk_size: int = typer.Option(100000, help="Base chunk size, will adjust dynamically based on read length"),
-#     portion: str = typer.Option("end", help="Whether to process the entire reads or just the ends"), 
-#     end_length: int = typer.Option(250, help="Bases from each end to be processed")):
-    
-#     # Model and label binarizer loading
-#     model = "models/" + model_name + ".h5"
-#     # model = load_model(model)
-
-#     with open("models/" + model_name + "_lbl_bin.pkl", "rb") as f:
-#         label_binarizer = pickle.load(f)
-
-#     # Load sequence order
-#     seq_order, sequences, barcodes, UMIs = seq_orders("utils/seq_orders.tsv", model_name)
-    
-#     # seq_order.insert(0, "cDNA")
-#     # seq_order.append("cDNA")
-
-#     # Determine folder path based on whether we're processing full-length reads or read ends
-#     if portion == "full":
-#         base_folder_path = os.path.join(output_dir, "full_length_pp_fa")
-#     else:
-#         base_folder_path = os.path.join(output_dir, "read_ends_pp_fa")
-    
-#     # Get the list of subdirectories (e.g., file1, file2, etc.)
-#     folder_paths = [os.path.join(base_folder_path, folder) for folder in os.listdir(base_folder_path) if os.path.isdir(os.path.join(base_folder_path, folder))]
-
-#     # Get the bin names dynamically by listing all .pkl files and using the read length estimates from bin names
-    
-#     count = 0
-
-#     for folder in folder_paths:
-#         bin_names = []
-        
-#         output_path = output_dir + "/tmp/" + os.path.basename((folder)) + "_annotation_tmp"
-#         os.system("cd " + output_dir + "\nmkdir -p tmp/" + os.path.basename((folder)) + "_annotation_tmp")
-
-#         for file in os.listdir(folder):
-#             if file.endswith(".pkl"):
-#                 bin_name = file.replace(".pkl", "")
-#                 bin_names.append(bin_name)
-        
-#         # Sort bins by estimated average read length (shorter first)
-#         bin_names.sort(key=lambda bin_name: estimate_average_read_length_from_bin(bin_name))
-
-#         checkpoint_file = output_path + "/annotation_checkpoint.txt"
-
-#         # Load checkpoint if available
-#         last_bin, last_chunk = load_checkpoint(checkpoint_file, bin_names[0])
-#         chunk_start = last_chunk
-
-#         # Process each bin dynamically found in the folder, sorted by read length
-#         for i in range(bin_names.index(last_bin), len(bin_names)):
-#             bin_name = bin_names[i]
-#             if last_bin == bin_names[i-1]:
-#                 chunk_start = 1
-
-#             if bin_name == bin_names[0] and chunk_start == 1 and count == 0:
-#                 add_header = True
-#             else:
-#                 add_header = False
-#             load_and_process_reads_by_bin(bin_name, chunk_start, folder, chunk_size, model, 
-#                                           label_binarizer, seq_order, output_path, add_header,
-#                                           checkpoint_file)
-
-#         if count == 0:
-#             os.system("cat " + output_path + "/*.tsv > " + output_dir + "/annotations.tsv")
-#         else:
-#             os.system("cat " + output_path + "/*.tsv >> " + output_dir + "/annotations.tsv")
-        
-#         count += 1
 
 # Function to calculate the total number of rows in the Parquet file
 def calculate_total_rows(parquet_file):
@@ -443,11 +210,12 @@ def estimate_average_read_length_from_bin(bin_name):
 
 # Function to process the Parquet file in chunks with dynamic chunk sizing
 def load_and_process_reads_by_bin(parquet_file, chunk_start, chunk_size, model, 
-                                  cumulative_barcodes_stats, label_binarizer, 
-                                  all_read_lengths, all_cDNA_lengths,
+                                  cumulative_barcodes_stats, reason_counter,
+                                  label_binarizer, all_read_lengths, all_cDNA_lengths,
                                   match_type_counter, cell_id_counter, 
                                   seq_order, output_dir, add_header, checkpoint_file, 
                                   barcodes, whitelist_df, n_jobs):
+    
     total_rows = calculate_total_rows(parquet_file)
     bin_name = os.path.basename(parquet_file).replace(".parquet", "")
     
@@ -457,8 +225,10 @@ def load_and_process_reads_by_bin(parquet_file, chunk_start, chunk_size, model,
 
     # Read the input file in chunks
 
+    num_chunks = (total_rows // dynamic_chunk_size) + (1 if total_rows % dynamic_chunk_size > 0 else 0)
+
     # Iterate over chunks within the Parquet file
-    for chunk_idx in range(chunk_start, (total_rows // dynamic_chunk_size) + 1):
+    for chunk_idx in range(chunk_start, num_chunks + 1):
         print(f"Processing {bin_name}: chunk {chunk_idx}")
         
         # Read the current chunk of rows from the Parquet file
@@ -476,13 +246,13 @@ def load_and_process_reads_by_bin(parquet_file, chunk_start, chunk_size, model,
 
         # Process the current chunk (full-length reads)
         results = process_full_length_reads_in_chunks_and_save(reads, read_names, model, label_binarizer, cumulative_barcodes_stats,
-                                                               read_lengths, seq_order, add_header, append, bin_name, output_dir,
-                                                               barcodes, whitelist_df, n_jobs)
+                                                               reason_counter, read_lengths, seq_order, add_header, append, bin_name,
+                                                               output_dir, barcodes, whitelist_df, n_jobs)
         
         if results is not None:
-            match_type_counts, cell_id_counts, cDNA_lengths, cumulative_barcodes_stats = results
+            match_type_counts, cell_id_counts, cDNA_lengths, cumulative_barcodes_stats, reason_counter = results
 
-            # Update cumulative stats
+            # Update cumulative stats;k
             all_read_lengths.extend(read_lengths)
             all_cDNA_lengths.extend(cDNA_lengths)
             
@@ -496,7 +266,89 @@ def load_and_process_reads_by_bin(parquet_file, chunk_start, chunk_size, model,
         add_header = False  # Only add header for the first chunk
         gc.collect()  # Clean up memory after processing each chunk
 
-    return cumulative_barcodes_stats, all_read_lengths, all_cDNA_lengths, match_type_counter, cell_id_counter
+    return cumulative_barcodes_stats, all_read_lengths, all_cDNA_lengths, match_type_counter, cell_id_counter, reason_counter
+
+def filtering_reason_stats(reason_counter_by_bin, output_dir):
+    """Plot a heatmap with a bar chart while improving y-axis readability.
+    Saves both raw count and normalized fraction TSVs.
+    """
+
+    # Convert dictionary to DataFrame (Bins as Columns, Reasons as Rows)
+    raw_counts_df = pd.DataFrame.from_dict(reason_counter_by_bin, orient='index').fillna(0).T
+
+    # Get correct y-axis order from the dictionary
+    correct_reason_order = list(raw_counts_df.index)
+
+    # Compute total reads per bin
+    total_reads = raw_counts_df.sum(axis=0)
+
+    # Normalize each column (fraction per bin)
+    normalized_data = raw_counts_df.div(total_reads, axis=1)
+
+    # Save both raw counts and normalized fractions
+    os.makedirs(f"{output_dir}/data", exist_ok=True)
+    raw_counts_df.to_csv(f"{output_dir}/filtered_raw_counts_by_bins.tsv", sep='\t')
+    normalized_data.to_csv(f"{output_dir}/filtered_normalized_fractions_by_bins.tsv", sep='\t')
+
+    print(f"Saved raw counts to {output_dir}/filtered_raw_counts_by_bins.tsv")
+    print(f"Saved normalized fractions to {output_dir}/filtered_normalized_fractions_by_bins.tsv")
+
+def plot_reason_heatmap_from_tsv(output_dir):
+    """Replot heatmap with log10 bar chart using saved TSV data."""
+
+    raw_counts_file = f"{output_dir}/filtered_raw_counts_by_bins.tsv"
+    normalized_fractions_file = f"{output_dir}/filtered_normalized_fractions_by_bins.tsv"
+
+    # Load the normalized fractions
+    normalized_data = pd.read_csv(normalized_fractions_file, sep='\t', index_col=0)
+
+    # Check if raw counts are available for bar chart
+    if os.path.exists(raw_counts_file):
+        raw_counts = pd.read_csv(raw_counts_file, sep='\t', index_col=0)
+        total_reads = raw_counts.sum(axis=0)
+        log_total_reads = np.log10(total_reads.replace(0, np.nan))
+    else:
+        log_total_reads = None  # Can't generate bar chart
+
+    # Create figure with gridspec layout
+    fig = plt.figure(figsize=(14, 30))
+    gs = GridSpec(2, 1, height_ratios=[1, 5])
+
+    # Plot bar chart if we have total reads
+    if log_total_reads is not None:
+        ax0 = plt.subplot(gs[0])
+        ax0.bar(normalized_data.columns, log_total_reads, color='gray')
+        ax0.set_title("Total Reads per Bin (log10 scale)", fontsize=14, pad=15)
+        ax0.set_ylabel("log10(Total Reads)", fontsize=12)
+        ax0.set_xticklabels([])
+    else:
+        print("Raw counts not found, skipping bar chart.")
+
+    # Plot heatmap
+    ax1 = plt.subplot(gs[1])
+    sns.heatmap(
+        normalized_data,
+        cmap="YlGnBu",
+        annot=False,
+        cbar_kws={'label': 'Fraction of Reads'},
+        ax=ax1
+    )
+
+    # Set labels and formatting
+    ax1.set_title("Reason for filtering vs read length", fontsize=14, pad=15)
+    ax1.set_xlabel("Bin Name", fontsize=12, labelpad=10)
+    ax1.set_ylabel("Reason", fontsize=12, labelpad=10)
+    ax1.set_xticklabels(normalized_data.columns, rotation=45, ha='right')
+
+    # Adjust layout
+    plt.subplots_adjust(left=0.4, bottom=0.2, right=0.95, top=0.9, wspace=0.2, hspace=0.3)
+
+    # Save figure
+    os.makedirs(f"{output_dir}/plots", exist_ok=True)
+    plt.savefig(f"{output_dir}/plots/filtering_reason_heatmap.png", bbox_inches="tight", dpi=300)
+    plt.close()
+
+    print(f"Saved heatmap to {output_dir}/plots/filtering_reason_heatmap.png")
 
 # Modified function to process the entire directory of Parquet files in chunks with dynamic chunk sizing
 @app.command()
@@ -523,7 +375,7 @@ def annotate_reads(
     # Set base folder path depending on whether we are processing full reads or ends
     base_folder_path = os.path.join(output_dir, "full_length_pp_fa") if portion == "full" else os.path.join(output_dir, "read_ends_pp_fa")
 
-    # Get the list of all Parquet files (excluding read_index.parquet)
+    # # Get the list of all Parquet files (excluding read_index.parquet)
     parquet_files = [os.path.join(base_folder_path, f) for f in os.listdir(base_folder_path) 
                      if f.endswith('.parquet') and not f.endswith('read_index.parquet')]
 
@@ -544,11 +396,12 @@ def annotate_reads(
 
     match_type_counter = defaultdict(int)
     cell_id_counter = defaultdict(int)
+    reason_counter_by_bin = {}
 
     # Process each Parquet file, sorted by read length
     for parquet_file in parquet_files:
+        reason_counter = defaultdict(int)
         bin_name = os.path.basename(parquet_file).replace(".parquet", "")
-        # output_path = os.path.join(output_dir, "tmp")
         os.makedirs(os.path.join(output_dir, "tmp"), exist_ok=True)
 
         # Load checkpoint if available
@@ -562,14 +415,15 @@ def annotate_reads(
         add_header = True if count == 0 and chunk_start == 1 else False
 
         result = load_and_process_reads_by_bin(parquet_file, chunk_start, chunk_size, model, 
-                                                cumulative_barcodes_stats, label_binarizer, 
-                                                all_read_lengths, all_cDNA_lengths,
+                                                cumulative_barcodes_stats, reason_counter,
+                                                label_binarizer, all_read_lengths, all_cDNA_lengths,
                                                 match_type_counter, cell_id_counter,
                                                 seq_order, output_dir, add_header, checkpoint_file,
                                                 barcodes, whitelist_df, njobs)
         if result is not None:
-            cumulative_barcodes_stats, all_read_lengths, all_cDNA_lengths, match_type_counter, cell_id_counter = result
+            cumulative_barcodes_stats, all_read_lengths, all_cDNA_lengths, match_type_counter, cell_id_counter, reason_counter = result
         
+        reason_counter_by_bin[bin_name] = reason_counter
         count += 1
         gc.collect()  # Clean up memory after each file is processed
 
@@ -577,6 +431,10 @@ def annotate_reads(
                                 pdf_filename=output_dir + "/plots/barcode_plots.pdf")
     generate_demux_stats_pdf(output_dir + "/plots/demux_plots.pdf", match_type_counter,
                              cell_id_counter, all_read_lengths, all_cDNA_lengths)
+    # plot_reason_heatmap_with_bar(reason_counter_by_bin, output_dir)
+    filtering_reason_stats(reason_counter_by_bin, output_dir)
+
+    plot_reason_heatmap_from_tsv(output_dir)
 
     # Concatenate valid results into a single output file
     output_path = os.path.join(output_dir, "tmp")
@@ -622,7 +480,8 @@ def annotate_reads(
             outfile.close()
         logger.info("Merging complete.")
 
-    df = pl.scan_csv(f"{output_dir}/annotations_invalid.tsv", separator='\t')
+    df = pl.scan_csv(f"{output_dir}/annotations_invalid.tsv", separator='\t',
+                     dtypes={"UMI_Starts": pl.Utf8,  "UMI_Ends": pl.Utf8})
     annotations_invalid_parquet_file = f"{output_dir}/annotations_invalid.parquet"
     
     logger.info(f"Converting annotations_invalid.tsv")
@@ -632,132 +491,6 @@ def annotate_reads(
     os.system(f"rm {output_dir}/annotations_invalid.tsv")
 
     os.system(f"rm -r {output_path}")
-
-############# correct barcodes ############
-
-@app.command()
-def correct_barcodes(model_name: str,
-                     annotation_file: str,
-                     whitelist_file: str,
-                     output_dir: str, 
-                     threshold: int = typer.Option(2, help="Levenshtein distance threshold"),
-                     threads: int = typer.Option(2, help="Number of threads"),
-                     chunksize: int = typer.Option(100000, help="Chunk of reads to be processed at a time")):
-    
-    seq_order, sequences, barcodes, UMIs = seq_orders("utils/seq_orders.tsv", model_name)
-
-    os.system("grep -v invalid " + annotation_file + " | grep -v , > " + output_dir + "/valid_annotations.tsv")
-                                                                                                                                     
-    # output_file = output_dir + "/corrected_barcodes.tsv"
-
-    column_mapping = {}
-
-    for barcode in barcodes:
-        column_mapping[barcode] = barcode
-
-    barcode_correction_pipeline(output_dir + "/valid_annotations.tsv", 
-                                whitelist_file, output_dir, column_mapping, 
-                                threshold, threads, chunksize)
-
-############# demultiplex ############
-
-@app.command()
-def demultiplex(whitelist_file: str,
-                output_dir: str,
-                chunk_size: int = typer.Option(1000000, help="Number of reads to be processes in a batch"),
-                threads: int = typer.Option(1, help="Number of threads")):
-    
-    # seq_order, sequences, barcodes, UMIs = seq_orders("utils/seq_orders.tsv", model_name)
-
-    # column_mapping = {}
-
-    # for barcode in barcodes:
-    #     column_mapping[barcode] = barcode
-
-    corrected_barcodes_file = output_dir + "/corrected_barcodes.tsv"
-
-    assign_cell_id_in_chunks(corrected_barcodes_file, whitelist_file, output_dir, chunk_size, num_cores=threads)
-
-    print("Demultiplexing complete. Output saved to demultiplexed_reads.tsv")
-
-############# Correct UMI ################
-
-@app.command()
-def correct_UMI(output_dir: str, 
-                chunk_size: int = typer.Option(10000, help="Number of reads to be processes in a batch"),
-                threads: int = typer.Option(2, help="Number of threads"),
-                umi_column: str = typer.Option("UMI_Sequences", help="Name of the UMI column in the annotations.tsv file")):
-
-    input_file = output_dir + "/end_annotations_filt.tsv"
-    output_file = output_dir + "/umi_corrected.tsv" 
-
-    process_and_correct_umis(input_file, output_file, umi_column=umi_column, threshold=2, num_workers=threads)
-    # process_and_correct_umis(input_file, output_file, umi_column='UMI_Sequences', threshold=2)
-
-############ Simulate training data ##############
-
-@app.command()
-def simulate_training_data(model_name: str, output_dir: str,
-                           read_type: str = typer.Argument("single"), 
-                           threads: int = typer.Argument(1),
-                           mismatch_rate: float = typer.Argument(0.044),
-                           insertion_rate: float = typer.Argument(0.066116500187765),
-                           deletion_rate: float = typer.Argument(0.0612981959469103)):
-    
-    seq_order, sequences, barcodes, UMIs = seq_orders("utils/seq_orders.tsv", model_name)
-
-    X_train, X_val, Y_train, Y_val, label_binarizer, max_seq_len = prepare_training_data(seq_order, sequences, read_type, threads,
-                                                                                         mismatch_rate, insertion_rate, deletion_rate)
-
-    with open(output_dir + "/X_train.pkl", "wb") as f:
-        pickle.dump(X_train, f)
-    with open(output_dir + "/X_val.pkl", "wb") as f:
-        pickle.dump(X_val, f)
-    with open(output_dir + "/Y_train.pkl", "wb") as f:
-        pickle.dump(Y_train, f)
-    with open(output_dir + "/Y_val.pkl", "wb") as f:
-        pickle.dump(Y_val, f)
-        
-    with open(output_dir + "/label_binarizer.pkl", "wb") as f:
-        pickle.dump(label_binarizer, f)
-    with open(output_dir + "/max_seq_len.pkl", "wb") as f:
-         pickle.dump(max_seq_len, f)
-
-
-############ Train a model #############
-
-@app.command()
-def train_new_model(data_dir: str, model_dir: str, 
-                    embedding_dim: int, num_labels: int,
-                    num_conv_layers: int = typer.Argument(4),
-                    num_lstm_layers: int = typer.Argument(4),
-                    epochs: int = typer.Argument(5),
-                    batch_size: int = typer.Argument(150)):
-    
-    with open(data_dir + "/X_train.pkl", "rb") as f:
-        X_train = pickle.load(f)
-    with open(data_dir + "/Y_train.pkl", "rb") as f:
-        Y_train = pickle.load(f)
-    with open(data_dir + "/X_val.pkl", "rb") as f:
-        X_val = pickle.load(f)
-    with open(data_dir + "/Y_val.pkl", "rb") as f:
-        Y_val = pickle.load(f)
-
-    with open(data_dir + "/max_seq_len.pkl", "rb") as f:
-        max_seq_len = pickle.load(f)
-    
-    ont_read_annotator = ReadAnnotator(max_seq_len, embedding_dim, num_labels, 
-                                       num_conv_layers=num_conv_layers, 
-                                       num_lstm_layers=num_lstm_layers)
-    
-    ont_read_annotator.compile_model(learning_rate=0.001, optimizer='adam')
-    ont_read_annotator.summary()
-    model, history = train_model(X_train, Y_train, X_val, Y_val, ont_read_annotator.model,
-                                 epochs=epochs, batch_size=batch_size)
-
-    model.save(model_dir + "model.h5")
-    with open(model_dir + '/training_history.pkl', 'wb') as file:
-        pickle.dump(history.history, file)
 
 if __name__ == "__main__":
     app()

@@ -1,2 +1,0 @@
-tranquil_complex,p7,i7,RP2,UMI,ACC,cDNA,polyA,CBC,RP1,i5,p5
-scNanoRNAseq,5p,CBC,UMI,polyT,cDNA,3p
