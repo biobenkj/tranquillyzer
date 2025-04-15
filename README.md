@@ -2,6 +2,66 @@
 
 Tranquilizer is a Deep Learning (DL) based tool to annotate, visualize the annotated reads, demultiplex for single-cell long-reads data including **TRAQNUIL-seq** and **scNanoRNASeq** and generate some inital QC plots. 
 
+## Installation
+
+We recommend using **`mamba`** for efficient environment setup and reproducibility. The following steps guide you through a clean GPU-enabled installation.
+
+### 1. <ins>Create and activate the environment</ins>
+
+```bash
+mamba env create -f environment.yml
+conda activate tranquilizer
+```
+
+### 2. <ins>Install GPU-enabled TensorFlow 2.15 with CUDA 11.8 support</ins>
+
+This ensures compatibility with your GPU and avoids system-wide CUDA requirements:
+
+```bash
+python -m pip install "tensorflow[and-cuda]==2.15" --extra-index-url https://pypi.nvidia.com
+```
+
+Then install TensorFlow Addons:
+
+```bash
+pip install tensorflow-addons
+```
+
+### 3. <ins>Install Tranquilizer (in editable mode)</ins>
+
+From the root directory of this repository:
+
+```bash
+pip install -e .
+```
+
+#### Fix any missing dependencies
+
+If you see errors or warnings after installing TensorFlow (especially related to `bx-python`, `sklearn` etc.), run the following:
+
+```bash
+pip install bx-python scikit-learn
+```
+
+## Quick Start
+
+Verify that Tranquilizer is installed correctly:
+
+```bash
+tranquilizer --help
+```
+
+You should see the CLI help message with available commands like:
+
+- `availablemodels`
+- `preprocessfasta`
+- `annotate-reads`
+- `visualize`
+- `align`
+- `dedup`
+- `simulate-data`
+- `train-model`
+
 ## I/O
 
 The directory storing all the raw reads in **fasta/fa/fasta.gz/fa.gz/fastq/fq/fastq.gz/fq.gz** is provided as the input and the tool generates demultiplexed fasta files along with valid and invalid annotated **.parquet** files and some QC .pdf files as the outputs in two separate steps/commands (preprocessfasta and annotate-reads). Check out the examples drectory for both **TRAQNUIL-seq** and **scNanoRNASeq** datasets.
@@ -47,7 +107,7 @@ All QC plots are saved in /path/to/OUTPUT/directory/plots/.
 Example usage:
 
 ```console
-tranquilizer annotate-reads MODEL_NAME /path/to/OUTPUT/directory /path/to/BARCODE_WHITELIST --chunk-size 100000 --portion full --njobs @CPU_threads
+tranquilizer annotate-reads MODEL_NAME /path/to/OUTPUT/directory /path/to/BARCODE_WHITELIST --chunk-size 100000 --njobs @CPU_threads
 ```
 
 ### <ins>Read visualization</ins>
@@ -57,7 +117,7 @@ Annotated reads can be inspected independently of the `annotate-reads` processâ€
 Example usage:
 
 ```console
-tranquilizer visualize MODEL_NAME /path/to/OUTPUT/directory --portion full --read-names READ_NAME_1,READ_NAME_2,READ_NAME3
+tranquilizer visualize MODEL_NAME /path/to/OUTPUT/directory --read-names READ_NAME_1,READ_NAME_2,READ_NAME3
 ``` 
 
 
