@@ -7,8 +7,6 @@ def trained_models():
 
     utils_dir = os.path.join(base_dir, "..", "utils")
     utils_dir = os.path.abspath(utils_dir)
-
-    print(utils_dir)
     
     try:
         # Check if the directory exists
@@ -16,9 +14,7 @@ def trained_models():
             print(f"The directory '{models_dir}' does not exist.")
             return
 
-        print("\n################################################################\
-              \n############# CURRENTLY AVAILABLE TRAINED MODELS ###############\
-              \n################################################################\n")
+        print("\n ~~~~~~~~~~~~~~~~ CURRENTLY AVAILABLE TRAINED MODELS ~~~~~~~~~~~~~~~~\n")
         # Iterate over all files in the directory
         for file_name in os.listdir(models_dir):
             # Check if the file has a .h5 extension

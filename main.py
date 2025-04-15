@@ -24,7 +24,6 @@ from multiprocessing import Manager
 from collections import defaultdict
 from sklearn.preprocessing import LabelBinarizer
 
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 warnings.filterwarnings('ignore', category=UserWarning, module='tensorflow')
 
 from tensorflow.keras.models import load_model
