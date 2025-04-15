@@ -6,14 +6,29 @@ Tranquilizer is a Deep Learning (DL) based tool to annotate, visualize the annot
 
 We recommend using **`mamba`** for efficient environment setup and reproducibility. The following steps guide you through a clean GPU-enabled installation.
 
-### 1. <ins>Create and activate the environment</ins>
+### 1. <ins>Clone the Repository</ins>
+
+```bash
+git clone https://github.com/huishenlab/tranquilizer.git
+cd tranquilizer
+```
+
+### 2. <ins>Add Model Files</ins>
+
+Before proceeding with the installation, manually place the required model files inside the models/ directory:
+* <model_name>.h5
+* <model_name>_lbl_bin.pkl
+
+These files are needed for annotation and visualization functionality.
+
+### 3. <ins>Create and activate the environment</ins>
 
 ```bash
 mamba env create -f environment.yml
 conda activate tranquilizer
 ```
 
-### 2. <ins>Install GPU-enabled TensorFlow 2.15 with CUDA 11.8 support</ins>
+### 4. <ins>Install GPU-enabled TensorFlow 2.15 with CUDA 11.8 support</ins>
 
 This ensures compatibility with your GPU and avoids system-wide CUDA requirements:
 
@@ -27,7 +42,7 @@ Then install TensorFlow Addons:
 pip install tensorflow-addons
 ```
 
-### 3. <ins>Install Tranquilizer (in editable mode)</ins>
+### 5. <ins>Install Tranquilizer (in editable mode)</ins>
 
 From the root directory of this repository:
 
