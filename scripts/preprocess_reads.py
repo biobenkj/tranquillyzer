@@ -1,11 +1,12 @@
 import os
 import gzip
-import polars as pl
-from Bio import SeqIO
-from concurrent.futures import ProcessPoolExecutor
 import logging
 import time
 import glob
+import polars as pl
+from Bio import SeqIO
+from concurrent.futures import ProcessPoolExecutor
+
 from filelock import FileLock  # Import the FileLock library
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
@@ -74,7 +75,6 @@ def dump_bin_data(output_dir, bin_name, data):
 def parallel_preprocess_data(file_list, output_dir, batch_size, num_workers=4):
     total_files = len(file_list)
 
-    # Dynamically adjust the number of workers to the number of files, if fewer files than threads
     if total_files < num_workers:
         num_workers = total_files
         logger.info(f"Adjusting number of workers to {num_workers} since there are only {total_files} files.")
@@ -88,7 +88,6 @@ def parallel_preprocess_data(file_list, output_dir, batch_size, num_workers=4):
     end_time = time.time()
     logger.info(f"Processed {total_files} files in {end_time - start_time:.2f} seconds.")
 
-    # Convert TSV files to chunked Parquet files after all files are processed
     os.system("rm " + output_dir + "/*.lock")
     convert_tsv_to_parquet(output_dir, row_group_size=1000000)
 

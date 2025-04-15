@@ -1,0 +1,3 @@
+include README.md
+include models/*.h5
+include utils/*.tsv

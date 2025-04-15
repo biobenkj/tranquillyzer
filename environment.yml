@@ -1,0 +1,25 @@
+name: tranquilizer
+channels:
+  - conda-forge
+  - nvidia
+  - bioconda
+  - defaults
+dependencies:
+  - python=3.10.12
+  - pip
+  - pandas
+  - polars
+  - matplotlib
+  - seaborn
+  - tqdm
+  - filelock
+  - numba
+  - typer
+  - rapidfuzz
+  - python-Levenshtein
+  - pip:
+     - numpy
+     - biopython
+     - pysam
+     - bcbio-gff
+     - scikit-learn

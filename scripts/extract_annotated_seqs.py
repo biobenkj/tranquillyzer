@@ -1,5 +1,5 @@
 import multiprocessing as mp
-import polars as pl
+# import polars as pl
 
 ################ collapse labels into order ################
 
@@ -29,17 +29,17 @@ def collapse_labels(arr, read_length):
 
 ############ check if elements are in expected order ##############
 
+def match_order(array, target):
+    """Check if array matches the target in different slices."""
+    return(
+        array == target or
+        array[1:] == target or
+        array[1:-1] == target or
+        array[:-1] == target
+    )
+
 def check_order(collapsed_array, count_dict, expected_order):
 
-    def match_order(array, target):
-        """Check if array matches the target in different slices."""
-        return (
-            array == target or
-            array[1:] == target or
-            array[1:-1] == target or
-            array[:-1] == target
-        )
-    
     order_match_w_polyA = match_order(collapsed_array, expected_order)
     order_match_w_polyA_rev = match_order(collapsed_array, expected_order[::-1])
 
@@ -56,18 +56,18 @@ def check_order(collapsed_array, count_dict, expected_order):
 
     if order_match_w_polyA:
         order_match = True
-        order = "forward"
+        order = "+"
     if order_match_wo_polyA:
         order_match = True
-        order = "forward"
-        reasons = f'missing {polyA}'
+        order = "+"
+        reasons = f'mi {polyA}'
     if order_match_w_polyA_rev:
         order_match = True
-        order = "reverse"
+        order = "-"
     if order_match_w0_polyA_rev:
         order_match = True
-        order = "reverse"
-        reasons = f'missing {polyA}'
+        order = "-"
+        reasons = f'mi {polyA}'
 
     if order_match:
         for key, count in count_dict.items():
@@ -79,16 +79,16 @@ def check_order(collapsed_array, count_dict, expected_order):
             if element not in count_dict:
                 reasons = reasons if reasons != "NA" else ""
                 if reasons == "":
-                    reasons += f"missing {element}"
+                    reasons += f"mi {element}"
                 else:
-                    reasons += f", missing {element}"
+                    reasons += f", mi {element}"
                 # reasons += f", missing {element}"
             elif count_dict[element] > 1 and element != "cDNA":
                 reasons = reasons if reasons != "NA" else ""
                 if reasons == "":
-                    reasons += f"multiple {element}"
+                    reasons += f"mu {element}"
                 else:
-                    reasons += f", multiple {element}"
+                    reasons += f", mu {element}"
             
     if not order_match and reasons == "NA":
         reasons = "unexpected order"
@@ -97,10 +97,12 @@ def check_order(collapsed_array, count_dict, expected_order):
 
 ############## process full-length reads ############
 
-def process_full_len_reads(data, barcodes):
+def process_full_len_reads(data, barcodes, label_binarizer):
 
     read, prediction, read_length, seq_order = data
-    collapsed_array, count_dict, indices_dict = collapse_labels(prediction, read_length)
+    decoded_prediction = label_binarizer.inverse_transform(prediction)
+
+    collapsed_array, count_dict, indices_dict = collapse_labels(decoded_prediction, read_length)
     order_match, order, reasons = check_order(collapsed_array, count_dict, seq_order)
     
     annotations = {element: {'Starts': [], 'Ends': [], 'Sequences': []} for element in seq_order}
@@ -115,29 +117,29 @@ def process_full_len_reads(data, barcodes):
             annotations[element]['Ends'].append(end)
     if order_match:
         if len(annotations["cDNA"]['Starts']) == 2:
-            if order == "forward" and collapsed_array[0] == "cDNA":
+            if order == "+" and collapsed_array[0] == "cDNA":
                 annotations['random_s']['Starts'].append(annotations['cDNA']['Starts'][0])
                 annotations['random_s']['Ends'].append(annotations['cDNA']['Ends'][0])
                 annotations['cDNA']['Starts'] = [annotations['cDNA']['Starts'][1]]
                 annotations['cDNA']['Ends'] = [annotations['cDNA']['Ends'][1]]
-            elif order == "forward" and collapsed_array[-1] == "cDNA":
+            elif order == "+" and collapsed_array[-1] == "cDNA":
                 annotations['random_e']['Starts'].append(annotations['cDNA']['Starts'][1])
                 annotations['random_e']['Ends'].append(annotations['cDNA']['Ends'][1])
                 annotations['cDNA']['Starts'] = [annotations['cDNA']['Starts'][0]]
                 annotations['cDNA']['Ends'] = [annotations['cDNA']['Ends'][0]]
-            elif order == "reverse" and collapsed_array[-1] == "cDNA":
+            elif order == "-" and collapsed_array[-1] == "cDNA":
                 annotations['random_s']['Starts'].append(annotations['cDNA']['Starts'][1])
                 annotations['random_s']['Ends'].append(annotations['cDNA']['Ends'][1])
                 annotations['cDNA']['Starts'] = [annotations['cDNA']['Starts'][0]]
                 annotations['cDNA']['Ends'] = [annotations['cDNA']['Ends'][0]]
-            elif order == "reverse" and collapsed_array[0] == "cDNA":
+            elif order == "-" and collapsed_array[0] == "cDNA":
                 annotations['random_e']['Starts'].append(annotations['cDNA']['Starts'][0])
                 annotations['random_e']['Ends'].append(annotations['cDNA']['Ends'][0])
                 annotations['cDNA']['Starts'] = [annotations['cDNA']['Starts'][1]]
                 annotations['cDNA']['Ends'] = [annotations['cDNA']['Ends'][1]]
 
         if len(annotations["cDNA"]['Starts']) == 3:
-            if order == "forward":
+            if order == "+":
                 annotations['random_s']['Starts'].append(annotations['cDNA']['Starts'][0])
                 annotations['random_s']['Ends'].append(annotations['cDNA']['Ends'][0])
                 annotations['random_e']['Starts'].append(annotations['cDNA']['Starts'][2])
@@ -163,24 +165,10 @@ def process_full_len_reads(data, barcodes):
 
     return annotations
 
-def extract_annotated_full_length_seqs(new_data, predictions, read_lengths, label_binarizer, seq_order, barcodes, n_jobs=4):
-    decoded_predictions = [label_binarizer.inverse_transform(seq) for seq in predictions]
+def extract_annotated_full_length_seqs(new_data, predictions, read_lengths, label_binarizer, seq_order, barcodes, n_jobs):
     
-    # Prepare data for parallel processing
-    data = [(new_data[i], decoded_predictions[i], read_lengths[i], seq_order) for i in range(len(new_data))]
-    
-    # Determine chunk size and number of chunks
-    chunk_size = len(data) // n_jobs
-    remainder = len(data) % n_jobs
-    
-    # Split data into equal chunks
-    chunks = [data[i:i + chunk_size] for i in range(0, len(data) - remainder, chunk_size)]
-    
-    if remainder > 0:
-        chunks[-1].extend(data[-remainder:])
-    
-    # Create a Pool of workers
+    data = [(new_data[i], predictions[i], read_lengths[i], seq_order) for i in range(len(new_data))]
+
     with mp.Pool(processes=n_jobs) as pool:
-        annotated_data = pool.starmap(process_full_len_reads, [(d, barcodes) for d in data])
-    
+        annotated_data = pool.starmap(process_full_len_reads, [(d, barcodes, label_binarizer) for d in data])
     return annotated_data

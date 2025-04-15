@@ -4,10 +4,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 def plot_read_len_distr(parquet_dir, output_dir):
-    # Ensure the output directory exists
-    os.makedirs(output_dir, exist_ok=True)
     
-    # Find all Parquet files in the directory
+    os.makedirs(output_dir, exist_ok=True)
     parquet_files = [os.path.join(parquet_dir, f) for f in os.listdir(parquet_dir) 
                      if f.endswith('.parquet') and f != 'read_index.parquet']
     
@@ -16,19 +14,12 @@ def plot_read_len_distr(parquet_dir, output_dir):
         return
 
     read_lengths = []
-
-    # Iterate through each Parquet file and read the 'ReadLength' column
     for parquet_file in parquet_files:
         try:
-            # Read only the 'ReadLength' column
             df = pl.read_parquet(parquet_file, columns=['read_length'])
-
-            # Cast 'ReadLength' column to integers and filter out any null values
             df = df.with_columns(
                 pl.col("read_length").cast(pl.Int64, strict=False).alias("read_length")
             ).filter(pl.col("read_length").is_not_null())
-
-            # Collect the 'ReadLength' values into a list
             read_lengths.extend(df["read_length"].to_list())
             
         except Exception as e:
@@ -39,17 +30,13 @@ def plot_read_len_distr(parquet_dir, output_dir):
         print("No read lengths found.")
         return
 
-    # Convert read lengths to a NumPy array for processing
     read_lengths = np.array(read_lengths, dtype=int)
-
-    # Check if the read lengths array is not empty and contains expected values
     if len(read_lengths) > 0:
         print(f"Minimum read length: {read_lengths.min()}, Maximum read length: {read_lengths.max()}")
     else:
         print("No valid read lengths found after loading.")
         return
 
-    # Apply log transformation safely (only for positive values)
     log_read_lengths = np.log10(read_lengths[read_lengths > 0])
 
     # Plot the read length distribution

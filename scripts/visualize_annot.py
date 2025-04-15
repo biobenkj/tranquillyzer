@@ -1,7 +1,7 @@
-import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.backends.backend_pdf import PdfPages
 from textwrap import fill
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_pdf import PdfPages
 
 def visualize_sequence_annotations(colors, read_name, read, predicted_labels, architecture, reason, chars_per_line=100, header_max_length=100, max_chunks_per_page=50):
     if not read:  # Check for empty reads

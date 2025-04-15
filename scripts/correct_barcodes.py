@@ -1,74 +1,84 @@
 import os
+import numpy as np
 import pandas as pd
-from multiprocessing import Pool
-import Levenshtein as lev
-from functools import partial
 from tqdm import tqdm
+from numba import njit
+from rapidfuzz import process
+from filelock import FileLock
 import matplotlib.pyplot as plt
-from matplotlib.backends.backend_pdf import PdfPages
-from itertools import product
+from multiprocessing import Pool
 from collections import defaultdict
+from rapidfuzz.distance import Levenshtein
+from matplotlib.backends.backend_pdf import PdfPages
+
 from scripts.demultiplex import assign_cell_id
 
 def reverse_complement(seq):
     complement = {'A': 'T', 'T': 'A', 'C': 'G', 'G': 'C'}
     return ''.join(complement.get(base, base) for base in reversed(seq))
 
+# Create ASCII lookup table (0-127 only, avoids excess memory usage)
+DNA_COMPLEMENT = np.zeros(128, dtype=np.uint8)  # Only map printable ASCII values
+DNA_COMPLEMENT[ord('A')] = ord('T')
+DNA_COMPLEMENT[ord('T')] = ord('A')
+DNA_COMPLEMENT[ord('G')] = ord('C')
+DNA_COMPLEMENT[ord('C')] = ord('G')
+DNA_COMPLEMENT[ord('N')] = ord('N')  # Keep 'N' unchanged
+
+@njit
+def reverse_complement_numba(seq_ascii):
+    rev_comp_arr = DNA_COMPLEMENT[seq_ascii[::-1]]  # Reverse & complement
+    return rev_comp_arr
+
+def reverse_complement(seq):
+    seq_ascii = np.frombuffer(seq.encode('ascii'), dtype=np.uint8)  # Convert string to ASCII uint8
+    rev_comp_ascii = reverse_complement_numba(seq_ascii)  # Call optimized function
+    return rev_comp_ascii.tobytes().decode('ascii')  # Convert back to string
+
 
 def correct_barcode(row, column_name, whitelist, threshold):
     observed_barcode = row[column_name]
     reverse_comp_barcode = reverse_complement(observed_barcode)
 
-    distances = [(wl_barcode, lev.distance(observed_barcode, wl_barcode)) for wl_barcode in whitelist]
-    distances += [(wl_barcode, lev.distance(reverse_comp_barcode, wl_barcode)) for wl_barcode in whitelist]
+    # Get distance scores for observed barcode and reverse complement
+    candidates = process.extract(observed_barcode, whitelist, scorer=Levenshtein.distance, limit=5)
+    candidates_rev = process.extract(reverse_comp_barcode, whitelist, scorer=Levenshtein.distance, limit=5)
 
-    min_distance = min(d[1] for d in distances)
-    closest_barcodes = [d[0] for d in distances if d[1] == min_distance]
+    # Combine results and find minimum distance
+    all_matches = candidates + candidates_rev
+    min_distance = min(match[1] for match in all_matches)
 
+    # Find all closest barcodes with the same minimum distance
+    closest_barcodes = [match[0] for match in all_matches if match[1] == min_distance]
+
+    # Handle threshold & multiple matches
     if min_distance > threshold:
-        if len(closest_barcodes) == 1:
-            return observed_barcode, closest_barcodes[0], min_distance, 1
-        else:
-            return observed_barcode, "NMF", min_distance, len(closest_barcodes)
+        # if len(closest_barcodes) == 1:
+        #     return observed_barcode, closest_barcodes[0], min_distance, 1
+        return observed_barcode, "NMF", min_distance, len(closest_barcodes)
 
-    return observed_barcode, ','.join(closest_barcodes), min_distance, len(closest_barcodes)
-
-
-def write_read_to_fasta(cell_id, read_name, cDNA_sequence, corrected_barcodes, umi_sequence, output_dir):
-    """
-    Write a single read to a FASTA file named by cell_id in the output directory.
-    """
-    fasta_dir = os.path.join(output_dir, "demuxed_fasta")
-    os.makedirs(fasta_dir, exist_ok=True)
-
-    cell_id_str = str(cell_id)
-    fasta_file_path = os.path.join(fasta_dir, f"{cell_id_str}.fasta")
-    header = f">{read_name}|cell_id:{cell_id_str}|Barcodes:{corrected_barcodes}|UMI:{umi_sequence}\n"
-
-    with open(fasta_file_path, "a") as fasta_file:
-        fasta_file.write(header)
-        fasta_file.write(f"{cDNA_sequence}\n")
+    return observed_barcode, ",".join(closest_barcodes), min_distance, len(closest_barcodes)
 
 
-def write_reads_to_fasta(batch_reads, output_dir):
-    """
-    Write multiple reads in batch to their respective FASTA files based on cell_id.
-    """
-    fasta_dir = os.path.join(output_dir, "demuxed_fasta")
-    os.makedirs(fasta_dir, exist_ok=True)
-
+def write_reads_to_fasta(batch_reads, demuxed_fasta, demuxed_fasta_lock, ambiguous_fasta, ambiguous_fasta_lock):
     for cell_id, reads in batch_reads.items():
-        fasta_file_path = os.path.join(fasta_dir, f"{cell_id}.fasta")
-        with open(fasta_file_path, "a") as fasta_file:
-            for header, sequence in reads:
-                fasta_file.write(f"{header}\n{sequence}\n")
-
+        if cell_id == "ambiguous":
+            with ambiguous_fasta_lock:
+                fasta_file = open(ambiguous_fasta, "a")
+        else:
+            with demuxed_fasta_lock:
+                fasta_file = open(demuxed_fasta, "a")
+        
+        for header, sequence in reads:
+            fasta_file.write(f"{header}\n{sequence}\n")
+        
+        fasta_file.close()
 
 def process_row(row, barcode_columns, whitelist_dict, whitelist_df, threshold, output_dir):
     result = {
         'ReadName': row['ReadName'],
         'read_length': row['read_length'],
-        'read': row['read'],
+        # 'read': row['read'],
         'cDNA_Starts': row['cDNA_Starts'],
         'cDNA_Ends': row['cDNA_Ends'],
         'cDNA_length': int(row['cDNA_Ends']) - int(row['cDNA_Starts']) + 1,
@@ -94,6 +104,8 @@ def process_row(row, barcode_columns, whitelist_dict, whitelist_df, threshold, o
         result['polyA_lengths'] = None
 
     corrected_barcodes = []
+    corrected_barcode_seqs = []
+
     for barcode_column in barcode_columns:
         whitelist = whitelist_dict[barcode_column]
         corrected_barcode, corrected_seq, min_dist, count = correct_barcode(
@@ -105,8 +117,11 @@ def process_row(row, barcode_columns, whitelist_dict, whitelist_df, threshold, o
         result[f'{barcode_column}_Starts'] = row[f'{barcode_column}_Starts']
         result[f'{barcode_column}_Ends'] = row[f'{barcode_column}_Ends']
         corrected_barcodes.append(f"{barcode_column}:{corrected_seq}")
+        corrected_barcode_seqs.append(corrected_seq)
 
     corrected_barcodes_str = ";".join(corrected_barcodes)
+    # corrected_barcode_seqs_str = "-".join(corrected_barcode_seqs)
+
     result['architecture'] = row['architecture']
     result['reason'] = row['reason']
     result['orientation'] = row['orientation']
@@ -114,18 +129,20 @@ def process_row(row, barcode_columns, whitelist_dict, whitelist_df, threshold, o
     cell_id, local_match_counts, local_cell_counts = assign_cell_id(result, whitelist_df, barcode_columns)
     result['cell_id'] = cell_id
 
+    corrected_barcode_seqs_str = whitelist_dict["cell_ids"][cell_id] if cell_id != "ambiguous" else "ambiguous"
+
     cDNA_sequence = row['read'][int(row['cDNA_Starts']):int(row['cDNA_Ends']) + 1]
     umi_sequence = row['read'][int(row['UMI_Starts']):int(row['UMI_Ends']) + 1]
 
     batch_reads = defaultdict(list)
-    batch_reads[cell_id].append(
-        (f">{row['ReadName']}|cell_id:{cell_id}|Barcodes:{corrected_barcodes_str}|UMI:{umi_sequence}", cDNA_sequence)
+    batch_reads[corrected_barcode_seqs_str].append(
+        # (f">{row['ReadName']}|cell_id:{cell_id}|Barcodes:{corrected_barcodes_str}|UMI:{umi_sequence}", cDNA_sequence)
+        (f">{row['ReadName']}_{corrected_barcode_seqs_str}_{umi_sequence} cell_id:{cell_id}|Barcodes:{corrected_barcodes_str}|UMI:{umi_sequence}", cDNA_sequence)
     )
-
     return result, local_match_counts, local_cell_counts, batch_reads
 
-
-def bc_n_demultiplex(chunk, barcode_columns, whitelist_dict, whitelist_df, threshold, output_dir, num_cores):
+def bc_n_demultiplex(chunk, barcode_columns, whitelist_dict, whitelist_df, threshold, output_dir, 
+                     demuxed_fasta, demuxed_fasta_lock, ambiguous_fasta, ambiguous_fasta_lock, num_cores):
     args = [(row, barcode_columns, whitelist_dict, whitelist_df, threshold, output_dir) for _, row in chunk.iterrows()]
     batch_reads = defaultdict(list)
 
@@ -140,11 +157,10 @@ def bc_n_demultiplex(chunk, barcode_columns, whitelist_dict, whitelist_df, thres
         for cell_id, reads in res[3].items():
             batch_reads[cell_id].extend(reads)
 
-    write_reads_to_fasta(batch_reads, output_dir)
+    write_reads_to_fasta(batch_reads, demuxed_fasta, demuxed_fasta_lock, ambiguous_fasta, ambiguous_fasta_lock)
 
     match_type_counts = defaultdict(int)
     cell_id_counts = defaultdict(int)
-    cDNA_lengths = [res['cDNA_length'] for res in processed_results]
 
     for match_counts in all_match_type_counts:
         for key, value in match_counts.items():
@@ -156,10 +172,11 @@ def bc_n_demultiplex(chunk, barcode_columns, whitelist_dict, whitelist_df, thres
 
     corrected_df = pd.DataFrame(processed_results)
 
-    return corrected_df, cDNA_lengths, match_type_counts, cell_id_counts
+    return corrected_df, match_type_counts, cell_id_counts
 
 # Function to generate side-by-side bar plots for each barcode type and save to a single PDF
 def generate_barcodes_stats_pdf(cumulative_barcodes_stats, barcode_columns, pdf_filename="barcode_plots.pdf"):
+    
     with PdfPages(pdf_filename) as pdf:
         for barcode_column in barcode_columns:
             count_data = pd.Series(cumulative_barcodes_stats[barcode_column]['count_data']).sort_index()
@@ -180,5 +197,3 @@ def generate_barcodes_stats_pdf(cumulative_barcodes_stats, barcode_columns, pdf_
             plt.tight_layout()
             pdf.savefig(fig)
             plt.close()
-
-    print(f"Bar plots saved to {pdf_filename}.")
