@@ -12,3 +12,4 @@
 __pycache__/
 *.pyc
 *.pyomodels/
+tranquilizer.egg-info/
