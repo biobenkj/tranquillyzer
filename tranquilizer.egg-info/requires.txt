@@ -1,0 +1,16 @@
+numpy
+pandas
+polars
+matplotlib
+seaborn
+tqdm
+filelock
+tensorflow
+tensorflow-addons
+rapidfuzz
+pysam
+numba
+typer
+biopython
+python-Levenshtein
+scikit-learn

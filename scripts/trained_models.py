@@ -7,6 +7,8 @@ def trained_models():
 
     utils_dir = os.path.join(base_dir, "..", "utils")
     utils_dir = os.path.abspath(utils_dir)
+
+    print(utils_dir)
     
     try:
         # Check if the directory exists
