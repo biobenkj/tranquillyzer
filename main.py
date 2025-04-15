@@ -1,4 +1,5 @@
 import os
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 import gc
 import time
 import json
@@ -15,7 +16,6 @@ import polars as pl
 import pandas as pd
 import multiprocessing as mp
 import tensorflow as tf
-print("GPUs Available:", tf.config.list_physical_devices('GPU'))
 from filelock import FileLock
 import matplotlib.pyplot as plt
 from collections import Counter
