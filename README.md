@@ -137,4 +137,4 @@ tranquilizer visualize MODEL_NAME /path/to/OUTPUT/directory --read-names READ_NA
 
 
 
-** Installation instructions and pre-requisites coming soon **
+** More detailed usage instructions coming soon **
