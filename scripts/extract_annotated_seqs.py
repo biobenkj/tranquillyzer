@@ -1,4 +1,5 @@
 import multiprocessing as mp
+import numpy as np
 # import polars as pl
 
 ################ collapse labels into order ################
@@ -97,10 +98,18 @@ def check_order(collapsed_array, count_dict, expected_order):
 
 ############## process full-length reads ############
 
-def process_full_len_reads(data, barcodes, label_binarizer):
-
+def process_full_len_reads(data, barcodes, label_binarizer, model_path_w_CRF):
+    
     read, prediction, read_length, seq_order = data
-    decoded_prediction = label_binarizer.inverse_transform(prediction)
+    
+    if model_path_w_CRF:
+        prediction = np.asarray(prediction)
+        if prediction.ndim == 1:
+            prediction = prediction[np.newaxis, :] 
+            # decoded_prediction = label_binarizer.inverse_transform(prediction)[0]
+            decoded_prediction = label_binarizer.classes_[prediction[0] if prediction.ndim == 2 else prediction]
+    else:
+        decoded_prediction = label_binarizer.inverse_transform(prediction)
 
     collapsed_array, count_dict, indices_dict = collapse_labels(decoded_prediction, read_length)
     order_match, order, reasons = check_order(collapsed_array, count_dict, seq_order)
@@ -165,10 +174,10 @@ def process_full_len_reads(data, barcodes, label_binarizer):
 
     return annotations
 
-def extract_annotated_full_length_seqs(new_data, predictions, read_lengths, label_binarizer, seq_order, barcodes, n_jobs):
+def extract_annotated_full_length_seqs(new_data, predictions, model_path_w_CRF, read_lengths, label_binarizer, seq_order, barcodes, n_jobs):
     
     data = [(new_data[i], predictions[i], read_lengths[i], seq_order) for i in range(len(new_data))]
 
     with mp.Pool(processes=n_jobs) as pool:
-        annotated_data = pool.starmap(process_full_len_reads, [(d, barcodes, label_binarizer) for d in data])
+        annotated_data = pool.starmap(process_full_len_reads, [(d, barcodes, label_binarizer, model_path_w_CRF) for d in data])
     return annotated_data

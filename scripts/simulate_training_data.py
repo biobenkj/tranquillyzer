@@ -1,6 +1,8 @@
 import re
+import random
 import pickle
 import numpy as np
+from Bio import SeqIO
 from multiprocessing import Pool
 
 ############## introduce errors ##############
@@ -59,7 +61,7 @@ def introduce_errors_with_labels_context(sequence, label, mismatch_rate, inserti
 
 ############## generate segments as per training requirement ###############
 
-def generate_segment(segment_type, segment_pattern, length_range):
+def generate_segment(segment_type, segment_pattern, length_range, transcriptome_records):
     """
     Generate a DNA sequence based on segment type and pattern.
     """
@@ -67,14 +69,35 @@ def generate_segment(segment_type, segment_pattern, length_range):
         length = int(segment_pattern[1:])
         sequence = "".join(np.random.choice(list("ATCG")) for _ in range(length))
         label = [segment_type] * length
-    elif segment_pattern == "NN":  # cDNA, length 100-500
+        
+    elif segment_pattern == "NN" and segment_type == "cDNA" :
         length = np.random.randint(length_range[0], length_range[1])
-        sequence = "".join(np.random.choice(list("ATCG")) for _ in range(length))
-        label = ["cDNA"] * length
-    elif segment_pattern == "RN": 
-        length = np.random.randint(20, 60)
-        sequence = "".join(np.random.choice(list("ATCG")) for _ in range(length))
-        label = ["cDNA"] * length
+        if transcriptome_records:
+            transcript = random.choice(transcriptome_records)
+            transcript_seq = str(transcript.seq)
+        else:
+            transcript_seq = "".join(np.random.choice(list("ATCG")) for _ in range(length))
+        if len(transcript_seq) > length:
+            fragment = transcript_seq[:length] if random.random() < 0.5 else transcript_seq[-length:]
+        else:
+            fragment = transcript_seq
+        sequence = fragment
+        label = ["cDNA"] * len(sequence)
+
+    elif segment_pattern == "RN" and segment_type == "cDNA" :
+        length = np.random.randint(0, 80)
+        if transcriptome_records:
+            transcript = random.choice(transcriptome_records)
+            transcript_seq = str(transcript.seq)
+        else:
+            transcript_seq = "".join(np.random.choice(list("ATCG")) for _ in range(length))
+        if len(transcript_seq) > length:
+            fragment = transcript_seq[:length] if random.random() < 0.5 else transcript_seq[-length:]
+        else:
+            fragment = transcript_seq
+        sequence = fragment
+        label = ["cDNA"] * len(sequence)
+
     elif segment_pattern in ["A", "T"]:  # PolyA or PolyT, length 0-50
         length = np.random.randint(0, 50)
         sequence = segment_pattern * length
@@ -89,7 +112,7 @@ def generate_segment(segment_type, segment_pattern, length_range):
 
 def simulate_dynamic_batch_complete(num_reads, length_range, mismatch_rate, insertion_rate,
                                     deletion_rate, polyT_error_rate, max_insertions, 
-                                    segments_order, segments_patterns):
+                                    segments_order, segments_patterns, transcriptome_records):
     """
     Generate complete reads dynamically based on segment order and patterns.
     """
@@ -99,7 +122,7 @@ def simulate_dynamic_batch_complete(num_reads, length_range, mismatch_rate, inse
         read_segments, label_segments = [], []
         
         for seg_type, seg_pattern in zip(segments_order, segments_patterns):
-            segment_seq, segment_label = generate_segment(seg_type, seg_pattern, length_range)
+            segment_seq, segment_label = generate_segment(seg_type, seg_pattern, length_range, transcriptome_records)
             read_segments.append(segment_seq)
             label_segments.append(segment_label)
 
@@ -136,7 +159,7 @@ def simulate_dynamic_batch_complete_wrapper(args):
 # Main balanced dataset generation function
 def generate_training_reads(num_reads, mismatch_rate, insertion_rate, deletion_rate, 
                             polyT_error_rate, max_insertions, segments_order, 
-                            segments_patterns, length_range, num_processes, rc):
+                            segments_patterns, length_range, num_processes, rc, transcriptome_records=None):
     """
     Generate a balanced dataset by combining first-half, second-half, and complete reads
     with adjusted cDNA length ranges to balance label representation.
@@ -145,7 +168,7 @@ def generate_training_reads(num_reads, mismatch_rate, insertion_rate, deletion_r
     num_complete = num_reads
 
     args_complete = (num_complete, length_range, mismatch_rate, insertion_rate, deletion_rate, 
-                     polyT_error_rate, max_insertions, segments_order, segments_patterns)
+                     polyT_error_rate, max_insertions, segments_order, segments_patterns, transcriptome_records)
 
     # Parallelized read generation
     with Pool(processes=num_processes) as pool:

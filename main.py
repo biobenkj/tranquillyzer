@@ -14,6 +14,7 @@ import subprocess
 import numpy as np
 import polars as pl
 import pandas as pd
+from Bio import SeqIO
 import multiprocessing as mp
 import tensorflow as tf
 from filelock import FileLock
@@ -22,6 +23,7 @@ from collections import Counter
 from sklearn.utils import shuffle
 from multiprocessing import Manager
 from collections import defaultdict
+from typing_extensions import Annotated
 from sklearn.preprocessing import LabelBinarizer
 
 warnings.filterwarnings('ignore', category=UserWarning, module='tensorflow')
@@ -30,8 +32,10 @@ from tensorflow.keras.models import load_model
 from tensorflow.keras.optimizers.legacy import Adam
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 import tensorflow_addons as tfa
+from tf2crf import CRF, ModelWithCRFLoss
 
 from scripts.deduplicate import deduplication_parallel
+from scripts.annotate_new_data import calculate_total_rows
 from scripts.train_new_model import DynamicPaddingDataGenerator, ont_read_annotator
 from scripts.visualize_annot import save_plots_to_pdf
 from scripts.simulate_training_data import generate_training_reads
@@ -44,7 +48,7 @@ from scripts.annotate_new_data import preprocess_sequences, annotate_new_data, m
 from scripts.preprocess_reads import parallel_preprocess_data, find_sequence_files, extract_and_bin_reads, convert_tsv_to_parquet
 from scripts.export_annotations import post_process_reads, plot_read_n_cDNA_lengths
 
-app = typer.Typer()
+app = typer.Typer(rich_markup_mode="rich")
 
 ############# available trained models ################
 
@@ -94,29 +98,73 @@ def load_read_index(index_file_path, read_name):
     return df["ParquetFile"][0]  # Return the associated Parquet file for the read name
 
 @app.command()
-def visualize(model_name: str, 
+def visualize(model_name: str,
               output_dir: str,
+              output_file: str = typer.Option("full_read_annots", 
+                                              help="Output annotation file name. Extension .pdf will be added automatically"),
+              model_type: Annotated[
+                  str, typer.Option(help="""
+                                    [red]REG[/red] = [green]CNN-LSTM[/green]\n
+                                    [red]CRF[/red] = [green]CNN-LSTM-CRF[/green]
+                                    """)
+                                    ] = "CRF",
               num_reads: int = typer.Option(None, help="Number of reads to randomly visualize from each Parquet file."),
               read_names: str = typer.Option(None, help="Comma-separated list of read names to visualize")):
     
     base_dir = os.path.dirname(os.path.abspath(__file__)) 
-    models_dir = os.path.join(base_dir, "models")  # go one level up to 'tranquilizer/', then into 'models'
+    models_dir = os.path.join(base_dir, "models")  
     models_dir = os.path.abspath(models_dir)
 
     utils_dir = os.path.join(base_dir, "utils")
     utils_dir = os.path.abspath(utils_dir)
 
-    # model = "models/" + model_name + ".h5"
-    model = os.path.join(models_dir, model_name + ".h5")
-    model = load_model(model)
-
-    # with open("models/" + model_name + "_lbl_bin.pkl", "rb") as f:
-    with open(os.path.join(models_dir, model_name + "_lbl_bin.pkl"), "rb") as f:
-        label_binarizer = pickle.load(f)
-
-    # seq_order, sequences, barcodes, UMIs = seq_orders("utils/seq_orders.tsv", model_name)
-
     seq_order, sequences, barcodes, UMIs = seq_orders(os.path.join(utils_dir, "seq_orders.tsv"), model_name)
+
+    num_labels = len(seq_order)
+
+    model_path_w_CRF = None
+
+    if model_type == "REG":
+        model_path = os.path.join(models_dir, model_name + ".h5")
+        model = load_model(model_path)
+        with open(os.path.join(models_dir, model_name + "_lbl_bin.pkl"), "rb") as f:
+            label_binarizer = pickle.load(f)
+    else:
+        model_path_w_CRF = os.path.join(models_dir, model_name + "_w_CRF.h5")
+        model_params_json_path = model_path_w_CRF.replace(".h5", "_params.json")
+        with open(model_params_json_path) as f:
+            raw_params = json.load(f)
+
+        params = {
+            k: (
+                v.lower() == "true" if isinstance(v, str) and v.lower() in ["true", "false"]
+                else int(v) if isinstance(v, str) and v.isdigit()
+                else float(v) if isinstance(v, str) and v.replace('.', '', 1).isdigit()
+                else v
+                )
+                for k, v in raw_params.items()
+                }
+        model = ont_read_annotator(
+            vocab_size=params["vocab_size"],
+            embedding_dim=params["embedding_dim"],
+            num_labels=num_labels,
+            conv_layers=params["conv_layers"],
+            conv_filters=params["conv_filters"],
+            conv_kernel_size=params["conv_kernel_size"],
+            lstm_layers=params["lstm_layers"],
+            lstm_units=params["lstm_units"],
+            bidirectional=params["bidirectional"],
+            attention_heads=params["attention_heads"],
+            dropout_rate=params["dropout_rate"],
+            regularization=params["regularization"],
+            learning_rate=params["learning_rate"],
+            crf_layer=True  # Force CRF for this model
+            )
+        dummy_input = tf.zeros((1, 512), dtype=tf.int32) 
+        _ = model(dummy_input)
+        model.load_weights(model_path_w_CRF)
+        with open(os.path.join(models_dir, model_name + "_w_CRF_lbl_bin.pkl"), "rb") as f:
+            label_binarizer = pickle.load(f)
 
     palette = ['red', 'blue', 'green', 'purple', 'pink', 'cyan', 'magenta', 'orange', 'brown']
     colors = {'random_s': 'black', 'random_e': 'black', 'cDNA': 'gray', 'polyT': 'orange', 'polyA': 'orange'}
@@ -133,7 +181,7 @@ def visualize(model_name: str,
     os.makedirs(f"{output_dir}/plots", exist_ok=True)
 
     folder_path = os.path.join(output_dir, "full_length_pp_fa")
-    pdf_filename = os.path.join(output_dir, "plots/full_read_annots.pdf")
+    pdf_filename = f'{output_dir}/plots/{output_file}.pdf'
 
     if not num_reads and not read_names:
         logger.error("You must either provide a value for 'num_reads' or specify 'read_names'.")
@@ -202,10 +250,10 @@ def visualize(model_name: str,
     encoded_data = preprocess_sequences(selected_reads)
     predictions = annotate_new_data(encoded_data, model)
     annotated_reads = extract_annotated_full_length_seqs(
-            selected_reads, predictions, selected_read_lengths, label_binarizer, seq_order, barcodes, n_jobs=1
+            selected_reads, predictions, model_path_w_CRF, selected_read_lengths, label_binarizer, seq_order, barcodes, n_jobs=1
         )
     save_plots_to_pdf(selected_reads, annotated_reads, selected_read_names, pdf_filename, colors, chars_per_line=150)
-    
+
 ############# Annotate all the reads ################
 
 @app.command()
@@ -213,25 +261,37 @@ def annotate_reads(
     model_name: str, 
     output_dir: str, 
     whitelist_file: str,
+    model_type: Annotated[
+        str, typer.Option(help="""
+                          [red]REG[/red] = [green]CNN-LSTM[/green]\n
+                          [red]CRF[/red] = [green]CNN-LSTM-CRF[/green]\n
+                          [red]HYB[/red] = [green]First pass with CNN-LSTM and second (of reads not qulaifying validity filter) with CNN-LSTM-CRF[/green]
+                          """)
+        ] = "HYB",
     chunk_size: int = typer.Option(100000, help="Base chunk size, dynamically adjusts based on read length"),
     bc_lv_threshold: int = typer.Option(2, help="lv-distance threshold for barcode correction"),
-    njobs: int = typer.Option(12, help="Number of CPU threads for barcode correction and demultiplexing"),
+    threads: int = typer.Option(12, help="Number of CPU threads for barcode correction and demultiplexing"),
     max_queue_size: int = typer.Option(3, help="Max number of Parquet files to queue for post-processing")
 ):
     base_dir = os.path.dirname(os.path.abspath(__file__)) 
-    models_dir = os.path.join(base_dir, "models")  # go one level up to 'tranquilizer/', then into 'models'
+    models_dir = os.path.join(base_dir, "models") 
     models_dir = os.path.abspath(models_dir)
 
     utils_dir = os.path.join(base_dir, "utils")
     utils_dir = os.path.abspath(utils_dir)
 
-    model_path = f"{models_dir}/{model_name}.h5"
+    model_path_w_CRF = None
+    model_path = None
+
+    if model_type == "REG" or model_type == "HYB":
+        model_path = f"{models_dir}/{model_name}.h5"
 
     with open(f"{models_dir}/{model_name}_lbl_bin.pkl", "rb") as f:
         label_binarizer = pickle.load(f)
 
     seq_order, sequences, barcodes, UMIs = seq_orders(f"{utils_dir}/seq_orders.tsv", model_name)
     whitelist_df = pd.read_csv(whitelist_file, sep='\t')
+    num_labels = len(seq_order)
 
     base_folder_path = os.path.join(output_dir, "full_length_pp_fa")
     
@@ -254,17 +314,13 @@ def annotate_reads(
     **{
         input_column: whitelist_df[whitelist_column].dropna().unique().tolist()
         for input_column, whitelist_column in column_mapping.items()
+        }
     }
-}
     manager = Manager()
-    cumulative_barcodes_stats = manager.dict({barcode: {'count_data': manager.dict(), 'min_dist_data': manager.dict()} for barcode in column_mapping.keys()})
+    cumulative_barcodes_stats = manager.dict({barcode: {'count_data': manager.dict(), 
+                                                        'min_dist_data': manager.dict()} for barcode in column_mapping.keys()})
     match_type_counter = manager.dict()
     cell_id_counter = manager.dict()
-
-    task_queue = mp.Queue(maxsize=max_queue_size)
-    result_queue = mp.Queue()
-    count = mp.Value('i', 0)
-    header_track = mp.Value('i', 0)
 
     fasta_dir = os.path.join(output_dir, "demuxed_fasta")
     os.makedirs(fasta_dir, exist_ok=True)
@@ -291,7 +347,8 @@ def annotate_reads(
 
                 append = "w" if chunk_idx == 1 else "a"
 
-                local_cumulative_stats = {barcode: {'count_data': {}, 'min_dist_data': {}} for barcode in column_mapping.keys()}
+                local_cumulative_stats = {barcode: {'count_data': {}, 
+                                                    'min_dist_data': {}} for barcode in column_mapping.keys()}
                 local_match_counter, local_cell_counter = defaultdict(int), defaultdict(int)
 
                 checkpoint_file = os.path.join(output_dir, "annotation_checkpoint.txt")
@@ -300,11 +357,11 @@ def annotate_reads(
                     add_header = header_track.value == 0
 
                 result = post_process_reads(
-                    reads, read_names, predictions, label_binarizer, local_cumulative_stats,
+                    reads, read_names, model_type, pass_num, model_path_w_CRF, predictions, label_binarizer, local_cumulative_stats,
                     read_lengths, seq_order, add_header, bin_name, output_dir, invalid_output_file, invalid_file_lock,
                     valid_output_file, valid_file_lock, barcodes, whitelist_df, 
                     whitelist_dict, bc_lv_threshold, checkpoint_file, 1, local_match_counter, local_cell_counter, 
-                    demuxed_fasta, demuxed_fasta_lock,ambiguous_fasta, ambiguous_fasta_lock, njobs
+                    demuxed_fasta, demuxed_fasta_lock,ambiguous_fasta, ambiguous_fasta_lock, threads
                 )
 
                 if result:
@@ -318,45 +375,130 @@ def annotate_reads(
             except queue.Empty:
                 pass
 
-    num_workers = min(njobs, mp.cpu_count() - 1)
+    num_workers = min(threads, mp.cpu_count() - 1)
+
+    def run_prediction_pipeline(result_queue, workers):
+        while any(worker.is_alive() for worker in workers) or not result_queue.empty():
+            try:
+                result = result_queue.get(timeout=5)
+                if result:
+                    local_cumulative_stats, local_match_counter, local_cell_counter, bin_name = result
+                    for key, value in local_match_counter.items():
+                        match_type_counter[key] = match_type_counter.get(key, 0) + value
+                    for key, value in local_cell_counter.items():
+                        cell_id_counter[key] = cell_id_counter.get(key, 0) + value
+                    for barcode in local_cumulative_stats.keys():
+                        for stat in ["count_data", "min_dist_data"]:
+                            for key, value in local_cumulative_stats[barcode][stat].items():
+                                cumulative_barcodes_stats[barcode][stat][key] = cumulative_barcodes_stats[barcode][stat].get(key, 0) + value
+            except queue.Empty:
+                pass
+
+    task_queue = mp.Queue(maxsize=max_queue_size)
+    result_queue = mp.Queue()
+    count = mp.Value('i', 0)
+    header_track = mp.Value('i', 0)
+
+    pass_num = 1
+
     workers = [mp.Process(target=post_process_worker, args=(task_queue, count, header_track, result_queue)) for _ in range(num_workers)]
 
     for worker in workers:
         worker.start()
 
-    for parquet_file in parquet_files:
-        for item in model_predictions(parquet_file, 1, chunk_size, model_path):
-            task_queue.put(item)
-            with header_track.get_lock():
+    if model_type == "REG" or model_type == "HYB":
+        # process all the reads with CNN-LSTM model first
+        logger.info("Starting first pass with regular model on all the reads")
+        for parquet_file in parquet_files:
+            for item in model_predictions(parquet_file, 1, chunk_size, model_path, model_path_w_CRF, model_type, num_labels):
+                task_queue.put(item)
+                with header_track.get_lock():
                     header_track.value += 1
 
-    for _ in range(num_workers):
-        task_queue.put(None)
+        for _ in range(threads):
+            task_queue.put(None)
 
-    while any(worker.is_alive() for worker in workers) or not result_queue.empty():
-        try:
-            result = result_queue.get(timeout=5)
-            if result:
-                local_cumulative_stats, local_match_counter, local_cell_counter, bin_name = result
-                
-                for key, value in local_match_counter.items():
-                    match_type_counter[key] = match_type_counter.get(key, 0) + value
-                
-                for key, value in local_cell_counter.items():
-                    cell_id_counter[key] = cell_id_counter.get(key, 0) + value
+        run_prediction_pipeline(result_queue, workers)
 
-                for barcode in local_cumulative_stats.keys():
-                    for stat in ["count_data", "min_dist_data"]:
-                        for key, value in local_cumulative_stats[barcode][stat].items():
-                            cumulative_barcodes_stats[barcode][stat][key] = cumulative_barcodes_stats[barcode][stat].get(key, 0) + value
+        logger.info("Finished first pass with regular model on all the reads")
 
-        except queue.Empty:
-            pass 
+        for worker in workers:
+            worker.join()
 
-    for worker in workers:
-        worker.join()
+        model_path_w_CRF = f"{models_dir}/{model_name}_w_CRF.h5"
+        
+        if model_type == "HYB":
+            # if model type selcted is HYB, process the failed reads in step 1 with CNN-LSTM-CRF model
+            pass_num = 2
+            task_queue = mp.Queue(maxsize=max_queue_size)
+            result_queue = mp.Queue()
 
-    cumulative_barcodes_stats = {k: {'count_data': dict(v['count_data']), 'min_dist_data': dict(v['min_dist_data'])} for k, v in cumulative_barcodes_stats.items()}
+            with count.get_lock():
+                count.value = 0
+            
+            with header_track.get_lock():
+                header_track.value = 0
+
+            workers = [mp.Process(target=post_process_worker, args=(task_queue, count, header_track, result_queue)) for _ in range(num_workers)]
+
+            for worker in workers:
+                worker.start()
+
+            with open(f"{models_dir}/{model_name}_w_CRF_lbl_bin.pkl", "rb") as f:
+                label_binarizer = pickle.load(f)
+
+            tmp_invalid_dir = os.path.join(output_dir, "tmp_invalid_reads")
+            convert_tsv_to_parquet(tmp_invalid_dir, row_group_size=1000000)
+
+            invalid_parquet_files = sorted(
+                [os.path.join(tmp_invalid_dir, f) for f in os.listdir(tmp_invalid_dir) 
+                if f.endswith('.parquet') and not f.endswith('read_index.parquet')],
+                key=lambda f: estimate_average_read_length_from_bin(os.path.basename(f).replace(".parquet", ""))
+            )
+    
+            logger.info("Starting second pass with CRF model on invalid reads")
+            for invalid_parquet_file in invalid_parquet_files:
+                if calculate_total_rows(invalid_parquet_file) >= 100:
+                    for item in model_predictions(invalid_parquet_file, 1, chunk_size, model_path, model_path_w_CRF, model_type, num_labels):
+                        task_queue.put(item)
+                        with header_track.get_lock():
+                            header_track.value += 1
+
+            for _ in range(threads):
+                task_queue.put(None)
+
+            run_prediction_pipeline(result_queue, workers)
+            logger.info("Finished second pass with CRF model on invalid reads")
+
+            for worker in workers:
+                worker.join()
+
+    if model_type == "CRF":
+        # process all the reads with CNN-LSTM-CRF model
+        model_path_w_CRF = f"{models_dir}/{model_name}_w_CRF.h5"
+
+        with open(f"{models_dir}/{model_name}_w_CRF_lbl_bin.pkl", "rb") as f:
+                label_binarizer = pickle.load(f)
+
+        logger.info("Starting first pass with CRF model on all the reads")
+        for parquet_file in parquet_files:
+            for item in model_predictions(parquet_file, 1, chunk_size, None, model_path_w_CRF, model_type, num_labels):
+                task_queue.put(item)
+                with header_track.get_lock():
+                    header_track.value += 1
+
+        for _ in range(threads):
+            task_queue.put(None)
+
+        run_prediction_pipeline(result_queue, workers)
+
+        logger.info("Finished first pass with CRF model on all the reads")
+
+        for worker in workers:
+            worker.join()
+
+    cumulative_barcodes_stats = {k: {'count_data': dict(v['count_data']), 
+                                     'min_dist_data': dict(v['min_dist_data'])} for k, v in cumulative_barcodes_stats.items()}
 
     os.makedirs(f"{output_dir}/plots", exist_ok=True)
 
@@ -388,8 +530,6 @@ def annotate_reads(
     dtypes = {col: pl.Utf8 for col in header if col != "read_length"}
     dtypes["read_length"] = pl.Int64 
 
-    # df = pl.scan_csv(f"{output_dir}/annotations_invalid.tsv", separator='\t',
-    #                  dtypes={"UMI_Starts": pl.Utf8,  "UMI_Ends": pl.Utf8})
     df = pl.scan_csv(f"{output_dir}/annotations_invalid.tsv", separator='\t', dtypes=dtypes)
     annotations_invalid_parquet_file = f"{output_dir}/annotations_invalid.parquet"
     
@@ -406,6 +546,9 @@ def annotate_reads(
 
     os.system(f"rm {output_dir}/demuxed_fasta/demuxed.fasta.lock")
     os.system(f"rm {output_dir}/demuxed_fasta/ambiguous.fasta.lock")
+
+    if model_type == "HYB":
+        os.system(f"rm -r {output_dir}/tmp_invalid_reads") 
 
 ##################### align inserts to the reference genome #####################
 
@@ -467,47 +610,42 @@ def simulate_data(model_name: str,
                   polyT_error_rate: float = typer.Option(0.02, help="error rate within polyT or polyA segments"),
                   max_insertions: float = typer.Option(5, help="maximum number of allowed insertions after a base"),
                   threads: int = typer.Option(2, help="number of CPU threads"), 
-                  rc: bool = typer.Option(True, help="whether to include reverse complements of the reads in the training data.\nFinal dataset will contain twice the number of user-specified reads")):
+                  rc: bool = typer.Option(True, help="whether to include reverse complements of the reads in the training data.\nFinal dataset will contain twice the number of user-specified reads"),
+                  transcriptome: str = typer.Option(None), help="transcriptome fasta file"):
     
     reads = []
     labels = []
 
     length_range = (min_cDNA, max_cDNA)
 
-    seq_order, sequences, barcodes, UMIs, training_segment_orders = training_seq_orders("utils/training_seq_orders.tsv", model_name)
+    base_dir = os.path.dirname(os.path.abspath(__file__)) 
+ 
+    utils_dir = os.path.join(base_dir, "utils")
+    utils_dir = os.path.abspath(utils_dir)
+
+    seq_order, sequences, barcodes, UMIs = seq_orders(f"{utils_dir}/training_seq_orders.tsv", model_name)
     seq_order_dict = {}
+
+    logger.info("Loading transcriptome fasta file")
+    transcriptome_records = list(SeqIO.parse(transcriptome, "fasta"))
+    logger.info("Transcriptome fasta loaded")
 
     for i in range(len(seq_order)):
         seq_order_dict[seq_order[i]] = sequences[i]
+    
+    training_segment_order = ["cDNA"]
+    training_segment_order.extend(seq_order)
+    training_segment_order.append("cDNA")
 
-    if not training_segment_orders == []:
-        for i in range(len(training_segment_orders)):
-            training_segment_order = training_segment_orders[i]
-            training_segment_pattern = []
-            for j in range(len(training_segment_order)):
-                training_segment_pattern[j] = seq_order_dict[training_segment_order[j]]
-            
-            logger.info(f"Generating read type {i}")
-            local_reads, local_labels = generate_training_reads(num_reads, mismatch_rate, insertion_rate, deletion_rate,
-                                                                polyT_error_rate, max_insertions, training_segment_order, 
-                                                                training_segment_pattern, length_range, threads, rc)
-            reads.extend(local_reads)
-            labels.extend(local_labels)
-        logger.info("Finished generating all types of reads")
-    else:
-        training_segment_order = ["cDNA"]
-        training_segment_order.extend(seq_order)
-        training_segment_order.append("cDNA")
+    training_segment_pattern = ["RN"]
+    training_segment_pattern.extend(sequences)
+    training_segment_pattern.append("RN")
 
-        training_segment_pattern = ["RN"]
-        training_segment_pattern.extend(sequences)
-        training_segment_pattern.append("RN")
-
-        logger.info(f"Generating reads")
-        reads, labels = generate_training_reads(num_reads, mismatch_rate, insertion_rate, deletion_rate, 
+    logger.info(f"Generating reads")
+    reads, labels = generate_training_reads(num_reads, mismatch_rate, insertion_rate, deletion_rate, 
                                                 polyT_error_rate, max_insertions, training_segment_order, 
-                                                training_segment_pattern, length_range, threads, rc)
-        logger.info(f"Finished generating reads")
+                                                training_segment_pattern, length_range, threads, rc, transcriptome_records)
+    logger.info(f"Finished generating reads")
 
     os.makedirs(f'{output_dir}/simulated_data', exist_ok=True)
 
@@ -534,7 +672,14 @@ def train_model(model_name: str,
                 threads: int = typer.Option(2, help="number of CPU threads"), 
                 rc: bool = typer.Option(True, help="whether to include reverse complements of the reads in the training data.\nFinal dataset will contain twice the number of user-specified reads")):
     
-    param_file = f'utils/training_params.tsv'
+    base_dir = os.path.dirname(os.path.abspath(__file__)) 
+    models_dir = os.path.join(base_dir, "models") 
+    models_dir = os.path.abspath(models_dir)
+
+    utils_dir = os.path.join(base_dir, "utils")
+    utils_dir = os.path.abspath(utils_dir)
+
+    param_file = f'{utils_dir}/training_params.tsv'
 
     with open(f"{output_dir}/simulated_data/reads.pkl", "rb") as r:
         reads = pickle.load(r)
@@ -559,7 +704,7 @@ def train_model(model_name: str,
 
     length_range = (min_cDNA, max_cDNA)
 
-    seq_order, sequences, barcodes, UMIs, training_segment_orders = training_seq_orders("utils/training_seq_orders.tsv", model_name)
+    seq_order, sequences, barcodes, UMIs = seq_orders(f"{utils_dir}/training_seq_orders.tsv", model_name)
 
     print(f"seq orders: {seq_order}")
 
@@ -573,7 +718,7 @@ def train_model(model_name: str,
 
     validation_reads, validation_labels = generate_training_reads(num_val_reads, mismatch_rate, insertion_rate, deletion_rate, 
                                                                   polyT_error_rate, max_insertions, validation_segment_order, 
-                                                                  sequences, length_range, threads, rc)
+                                                                  validation_segment_pattern, length_range, threads, rc)
     
     palette = ['red', 'blue', 'green', 'purple', 'pink', 'cyan', 'magenta', 'orange', 'brown']
     colors = {'random_s': 'black', 'random_e': 'black', 'cDNA': 'gray', 'polyT': 'orange', 'polyA': 'orange'}
@@ -606,14 +751,13 @@ def train_model(model_name: str,
         vocab_size = int(params["vocab_size"])
         embedding_dim = int(params["embedding_dim"])
         num_labels = int(len(seq_order))
-        print(f'num of labels: {num_labels}')
-        # num_labels = int(params["num_labels"])
         conv_layers = int(params["conv_layers"])
         conv_filters = int(params["conv_filters"])
         conv_kernel_size = int(params["conv_kernel_size"])
         lstm_layers = int(params["lstm_layers"])
         lstm_units = int(params["lstm_units"])
         bidirectional = params["bidirectional"].lower() == "true"
+        crf_layer = params["crf_layer"].lower() == "true"
         attention_heads = int(params["attention_heads"])
         dropout_rate = float(params["dropout_rate"])
         regularization = float(params["regularization"])
@@ -632,6 +776,7 @@ def train_model(model_name: str,
 
         unique_labels = list(set([item for sublist in labels for item in sublist]))
         label_binarizer = LabelBinarizer()
+        
         label_binarizer.fit(unique_labels)
 
         # Save label binarizer
@@ -662,52 +807,38 @@ def train_model(model_name: str,
             model = ont_read_annotator(
                 vocab_size, embedding_dim, num_labels, 
                 conv_layers=conv_layers, conv_filters=conv_filters, conv_kernel_size=conv_kernel_size, 
-                lstm_layers=lstm_layers, lstm_units=lstm_units, bidirectional=bidirectional, 
-                attention_heads=attention_heads, dropout_rate=dropout_rate, regularization=regularization
+                lstm_layers=lstm_layers, lstm_units=lstm_units, bidirectional=bidirectional, crf_layer=crf_layer,
+                attention_heads=attention_heads, dropout_rate=dropout_rate, regularization=regularization,
+                learning_rate=learning_rate
             )
 
-        optimizer = Adam(learning_rate=learning_rate)
-        model.compile(optimizer=optimizer, loss="categorical_crossentropy", metrics=["accuracy"])
-        model.summary()
-
-    
-        # Callbacks
-        reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=2, min_lr=1e-6)
-        early_stopping = tf.keras.callbacks.EarlyStopping(monitor="val_loss", patience=3, restore_best_weights=True)
-
         logger.info(f"Training {model_name}_{idx} with parameters: {params}")
-        history = model.fit(train_gen, validation_data=val_gen, epochs=epochs, callbacks=[early_stopping, reduce_lr])
-        model.save(f"{output_dir}/{model_name}_{idx}/{model_filename}")
-        logger.info(f" Model {model_name}_{idx} saved successfully!\n")
 
-        # Plot training & validation accuracy/loss curves
-        plt.figure(figsize=(8, 5))
-        plt.plot(history.history['accuracy'], label='Train Accuracy', marker='o')
-        plt.plot(history.history['val_accuracy'], label='Val Accuracy', marker='o')
-        plt.plot(history.history['loss'], label='Train Loss', linestyle='dashed')
-        plt.plot(history.history['val_loss'], label='Val Loss', linestyle='dashed')
-        plt.xlabel("Epochs")
-        plt.ylabel("Metrics")
-        plt.legend()
-        plt.title(f"Training Curve for {model_filename}")
-        plt.grid(True)
+        if crf_layer:
+            dummy_input = tf.zeros((1, 512), dtype=tf.int32)  # Batch of 1, sequence length 512
+            _ = model(dummy_input)
+            
+            reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_val_accuracy', factor=0.5, patience=1, min_lr=1e-5, mode='max')
+            early_stopping = tf.keras.callbacks.EarlyStopping(monitor="val_loss_val", patience=3, restore_best_weights=True)
 
-        # Save training curve
-        plt.savefig(f"{output_dir}/{model_name}_{idx}/{curve_filename}")
-        plt.close()
-        print(f"Training curve saved as {curve_filename}\n")
+            history = model.fit(train_gen, validation_data=val_gen, 
+                                epochs=epochs, callbacks=[early_stopping, reduce_lr])
+            model.save_weights(f"{output_dir}/{model_name}_{idx}/{model_name}_{idx}.h5")
+        else:
+            reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_accuracy', factor=0.5, patience=1, min_lr=1e-5, mode='max')
+            early_stopping = tf.keras.callbacks.EarlyStopping(monitor="val_loss", patience=3, restore_best_weights=True)
 
-        gc.collect()
+            history = model.fit(train_gen, validation_data=val_gen, 
+                                epochs=epochs, callbacks=[early_stopping, reduce_lr])
+            model.save(f"{output_dir}/{model_name}_{idx}/{model_filename}")
 
-        # Save training curve
-        plt.savefig(f"{output_dir}/{model_name}_{idx}/{curve_filename}")
-        plt.close()
-        logger.info(f"Training curve saved as {curve_filename}\n")
+        history_df = pd.DataFrame(history.history)
+        history_df.to_csv(f"{output_dir}/{model_name}_{idx}/{model_name}_{idx}_history.tsv", sep='\t', index=False)
 
         encoded_data = preprocess_sequences(validation_reads)
         predictions = annotate_new_data(encoded_data, model)
         annotated_reads = extract_annotated_full_length_seqs(
-            validation_reads, predictions, validation_read_lengths, label_binarizer, seq_order, barcodes, n_jobs=1
+            validation_reads, predictions, crf_layer, validation_read_lengths, label_binarizer, seq_order, barcodes, n_jobs=1
         )
         save_plots_to_pdf(validation_reads, annotated_reads, validation_read_names, 
                           f'{output_dir}/{model_name}_{idx}/{model_name}_{idx}_val_viz.pdf', 

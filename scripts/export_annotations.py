@@ -1,6 +1,7 @@
 import os
 import re
 import gc
+import csv
 import logging
 import numpy as np
 import pandas as pd 
@@ -31,15 +32,15 @@ def load_checkpoint(checkpoint_file, start_bin):
         return bin_name, int(chunk)
     return start_bin, 1  # If no checkpoint, start from the first chunk
 
-def process_full_length_reads_in_chunks_and_save(reads, original_read_names, predictions,
-                                                 label_binarizer, cumulative_barcodes_stats,
+def process_full_length_reads_in_chunks_and_save(reads, original_read_names, model_type, pass_num, model_path_w_CRF, 
+                                                 predictions, label_binarizer, cumulative_barcodes_stats,
                                                  actual_lengths, seq_order, add_header, output_dir, 
                                                  invalid_output_file, invalid_file_lock, 
                                                  valid_output_file, valid_file_lock, 
                                                  barcodes, whitelist_df, whitelist_dict, 
                                                  demuxed_fasta, demuxed_fasta_lock, 
                                                  ambiguous_fasta, ambiguous_fasta_lock,
-                                                 threshold, n_jobs):
+                                                 threshold, bin_name, n_jobs):
     
     reads_in_chunk = len(reads)
     
@@ -47,7 +48,7 @@ def process_full_length_reads_in_chunks_and_save(reads, original_read_names, pre
 
     n_jobs = min(n_jobs, reads_in_chunk)
     lengths = actual_lengths
-    chunk_contiguous_annotated_sequences = extract_annotated_full_length_seqs(reads, predictions, 
+    chunk_contiguous_annotated_sequences = extract_annotated_full_length_seqs(reads, predictions, model_path_w_CRF,
                                                                               lengths, label_binarizer, seq_order, 
                                                                               barcodes, n_jobs)
     
@@ -81,18 +82,45 @@ def process_full_length_reads_in_chunks_and_save(reads, original_read_names, pre
     )
 )
     # Filter out invalid reads
-    invalid_reads_df = chunk_df[chunk_df['architecture'] == 'invalid'].drop(columns=['read'])
+    invalid_reads_df = chunk_df[chunk_df['architecture'] == 'invalid']
     valid_reads_df = chunk_df[chunk_df['architecture'] != 'invalid']
+
+    if model_type == "HYB" and pass_num == 1:
+        tmp_invalid_dir = os.path.join(output_dir, "tmp_invalid_reads")
+        os.makedirs(tmp_invalid_dir, exist_ok=True)
+
+        tmp_invalid_df = pl.DataFrame({
+            'ReadName': invalid_reads_df['ReadName'],
+            'read': invalid_reads_df['read'],
+            'read_length': invalid_reads_df['read_length']
+        })
+
+        tmp_path = f'{tmp_invalid_dir}/{bin_name}.tsv'
+        lock_path = f"{tmp_path}.lock"
+
+        if not os.path.exists(lock_path):
+            with open(lock_path, 'w') as lock_file:
+                lock_file.write('')  # create the lock file
+
+        with FileLock(lock_path):
+            write_header = not os.path.exists(tmp_path)
+            with open(tmp_path, 'a', newline='') as f:
+                writer = csv.writer(f, delimiter='\t')
+                if write_header:
+                    writer.writerow(tmp_invalid_df.columns)
+                writer.writerows(tmp_invalid_df.rows())
+
+    else:
+        # Save invalid reads to a separate file
+        logging.info(f"Saving {len(invalid_reads_df)} invalid reads to {invalid_output_file}\n")
+        if not invalid_reads_df.empty:
+            with invalid_file_lock:
+                add_header = not os.path.exists(invalid_output_file) or os.path.getsize(invalid_output_file) == 0
+                invalid_reads_df.to_csv(invalid_output_file, sep='\t', index=False, mode='a', header=add_header)
+            print(f"Saved {len(invalid_reads_df)} invalid reads to {invalid_output_file}")
+
     logging.info(f"Prepared predictions for barcode correction and demultiplexing\n")
-
-    # Save invalid reads to a separate file
-    logging.info(f"Saving {len(invalid_reads_df)} invalid reads to {invalid_output_file}\n")
-    if not invalid_reads_df.empty:
-        with invalid_file_lock:
-            add_header = not os.path.exists(invalid_output_file) or os.path.getsize(invalid_output_file) == 0
-            invalid_reads_df.to_csv(invalid_output_file, sep='\t', index=False, mode='a', header=add_header)
-        print(f"Saved {len(invalid_reads_df)} invalid reads to {invalid_output_file}")
-
+    
     # Process valid reads for barcodes
     column_mapping = {}
 
@@ -142,16 +170,16 @@ def process_full_length_reads_in_chunks_and_save(reads, original_read_names, pre
     tf.keras.backend.clear_session()
     gc.collect()
 
-def post_process_reads(reads, read_names, predictions, label_binarizer, cumulative_barcodes_stats,
+def post_process_reads(reads, read_names, model_type, pass_num, model_path_w_CRF, predictions, label_binarizer, cumulative_barcodes_stats,
                        read_lengths, seq_order, add_header, bin_name, output_dir, 
                        invalid_output_file, invalid_file_lock, valid_output_file, valid_file_lock, barcodes, whitelist_df, whitelist_dict, 
                        threshold, checkpoint_file, chunk_start, match_type_counter,  cell_id_counter, 
                        demuxed_fasta, demuxed_fasta_lock, ambiguous_fasta, ambiguous_fasta_lock, njobs):
     
-    results = process_full_length_reads_in_chunks_and_save(reads, read_names, predictions, label_binarizer, cumulative_barcodes_stats,
+    results = process_full_length_reads_in_chunks_and_save(reads, read_names, model_type, pass_num, model_path_w_CRF, predictions, label_binarizer, cumulative_barcodes_stats,
                                                            read_lengths, seq_order, add_header, output_dir, invalid_output_file, invalid_file_lock,
                                                            valid_output_file, valid_file_lock, barcodes, whitelist_df, whitelist_dict, demuxed_fasta, 
-                                                           demuxed_fasta_lock, ambiguous_fasta, ambiguous_fasta_lock, threshold, njobs)
+                                                           demuxed_fasta_lock, ambiguous_fasta, ambiguous_fasta_lock, threshold, bin_name, njobs)
         
     if results is not None:
         match_type_counts, cell_id_counts, cumulative_barcodes_stats = results

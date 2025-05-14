@@ -20,7 +20,6 @@ def trained_models():
             # Check if the file has a .h5 extension
             seq_order, sequences, barcodes, UMIs = seq_orders(os.path.join(utils_dir, "seq_orders.tsv"), file_name[:-3])
             if file_name.endswith('.h5'):
-                # Print the file name without the .h5 extension
                 print("-- " + file_name[:-3] + " \t layout ==> " + ','.join(map(str, seq_order)) + " \n\t\t\t sequences ==> " + ','.join(map(str, sequences)) + "\n")
         print("\n")
 
