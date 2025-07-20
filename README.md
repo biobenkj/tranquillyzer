@@ -1,6 +1,6 @@
-# Tranquilizer
+# Tranquillyzer
 
-Tranquilizer is a Deep Learning (DL) based tool to annotate, visualize the annotated reads, demultiplex for single-cell long-reads data including **TRAQNUIL-seq** and **scNanoRNASeq** and generate some inital QC plots. 
+Tranquillyzer is a Deep Learning (DL) based tool to annotate, visualize the annotated reads, demultiplex for single-cell long-reads data including **TRAQNUIL-seq** and **scNanoRNASeq** and generate some inital QC plots. 
 
 ## Installation
 
@@ -9,8 +9,8 @@ We recommend using **`mamba`** for efficient environment setup and reproducibili
 ### 1. <ins>Clone the Repository</ins>
 
 ```bash
-git clone https://github.com/huishenlab/tranquilizer.git
-cd tranquilizer
+git clone https://github.com/huishenlab/tranquillyzer.git
+cd tranquillyzer
 ```
 
 ### 2. <ins>Add Model Files</ins>
@@ -25,7 +25,7 @@ These files are needed for annotation and visualization functionality.
 
 ```bash
 mamba env create -f environment.yml
-conda activate tranquilizer
+conda activate tranquillyzer
 ```
 
 ### 4. <ins>Install GPU-enabled TensorFlow 2.15 with CUDA 11.8 support</ins>
@@ -42,7 +42,7 @@ Then install TensorFlow Addons:
 pip install tensorflow-addons
 ```
 
-### 5. <ins>Install Tranquilizer (in editable mode)</ins>
+### 5. <ins>Install tranquillyzer (in editable mode)</ins>
 
 From the root directory of this repository:
 
@@ -60,10 +60,10 @@ pip install bx-python scikit-learn
 
 ## Quick Start
 
-Verify that Tranquilizer is installed correctly:
+Verify that tranquillyzer is installed correctly:
 
 ```bash
-tranquilizer --help
+tranquillyzer --help
 ```
 
 You should see the CLI help message with available commands like:
@@ -85,12 +85,12 @@ The directory storing all the raw reads in **fasta/fa/fasta.gz/fa.gz/fastq/fq/fa
 
 ### <ins>Preprocessing</ins>
 
-To enhance the efficiency of the annotation process, Tranquilizer organizes raw reads into separate .parquet files, grouping them based on their lengths. This approach optimizes data compression within each bin, accelerates the annotation of the entire dataset, and facilitates the visualization of user-specified annotated reads without dependence on the annotation status of the complete dataset.
+To enhance the efficiency of the annotation process, tranquillyzer organizes raw reads into separate .parquet files, grouping them based on their lengths. This approach optimizes data compression within each bin, accelerates the annotation of the entire dataset, and facilitates the visualization of user-specified annotated reads without dependence on the annotation status of the complete dataset.
 
 Example usage:
 
 ```console
-tranquilizer preprocessfasta /path/to/RAW_DATA/directory /path/to/OUTPUT/directory CPU_THREADS
+tranquillyzer preprocessfasta /path/to/RAW_DATA/directory /path/to/OUTPUT/directory CPU_THREADS
 ```
 It is recommended that you follow the directory structure as in the exmples.
 
@@ -101,7 +101,7 @@ As an initial quality control metric, users may wish to visualize the read lengt
 Example uage:
 
 ```console
-tranquilizer readlengthdist /path/to/OUTPUT/directory
+tranquillyzer readlengthdist /path/to/OUTPUT/directory
 ```
 
 ### <ins>Annotation, barcode correction and demultiplexing</ins>
@@ -117,12 +117,12 @@ Reads can be annotated, followed by barcode extraction, correction, and assignme
     3. full_read_annots.pdf
 All QC plots are saved in /path/to/OUTPUT/directory/plots/.
 
-**Note**: Before running the annotate-reads command, ensure you select the appropriate model for your dataset. If unsure, use the command `tranquilizer availablemodels` to view the available models.
+**Note**: Before running the annotate-reads command, ensure you select the appropriate model for your dataset. If unsure, use the command `tranquillyzer availablemodels` to view the available models.
 
 Example usage:
 
 ```console
-tranquilizer annotate-reads MODEL_NAME /path/to/OUTPUT/directory /path/to/BARCODE_WHITELIST --chunk-size 100000 --njobs @CPU_threads
+tranquillyzer annotate-reads MODEL_NAME /path/to/OUTPUT/directory /path/to/BARCODE_WHITELIST --chunk-size 100000 --njobs @CPU_threads
 ```
 
 ### <ins>Read visualization</ins>
@@ -132,7 +132,7 @@ Annotated reads can be inspected independently of the `annotate-reads` processâ€
 Example usage:
 
 ```console
-tranquilizer visualize MODEL_NAME /path/to/OUTPUT/directory --read-names READ_NAME_1,READ_NAME_2,READ_NAME3
+tranquillyzer visualize MODEL_NAME /path/to/OUTPUT/directory --read-names READ_NAME_1,READ_NAME_2,READ_NAME3
 ``` 
 
 
