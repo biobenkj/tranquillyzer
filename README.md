@@ -1,6 +1,6 @@
 # Tranquillyzer
 
-Tranquillyzer is a Deep Learning (DL) based tool to annotate, visualize the annotated reads, demultiplex for single-cell long-reads data including **TRAQNUIL-seq** and **scNanoRNASeq** and generate some inital QC plots. 
+Tranquillyzer is a Deep Learning (DL) based tool to annotate, visualize the annotated reads, demultiplex for single-cell long-reads data including **TRANQUIL-seq** and 10x 3' and 5' libraries and generate some inital QC plots. 
 
 ## Installation
 
