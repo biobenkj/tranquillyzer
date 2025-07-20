@@ -84,7 +84,7 @@ def save_plots_to_pdf(sequences, annotated_reads, read_names, filename, colors, 
                     if start >= len(sequence) or end > len(sequence):  # Check for out-of-bound regions
                         print(f"Error: Annotation bounds exceed sequence length for {read_name}. Skipping this annotation.")
                         continue
-                    predicted_labels[start:end+1] = [label] * (end - start + 1)
+                    predicted_labels[start:end+1] = [label] * (end - start)
                 
             architecture = annotated_read.get('architecture', 'N/A')
             reason = annotated_read.get('reason', 'N/A')

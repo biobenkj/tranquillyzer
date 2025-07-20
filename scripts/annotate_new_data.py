@@ -31,15 +31,15 @@ gpus = tf.config.experimental.list_physical_devices('GPU')
 for gpu in gpus:
     tf.config.experimental.set_memory_growth(gpu, True)
 
-def encode_sequence(read):
-    nucleotide_to_id = {'A': 1, 'C': 2, 'G': 3, 'T': 4, 'N': 5}
-    return [nucleotide_to_id[n] for n in read]
+# def encode_sequence(read):
+#     nucleotide_to_id = {'A': 1, 'C': 2, 'G': 3, 'T': 4, 'N': 5}
+#     return [nucleotide_to_id[n] for n in read]
 
-def encode_sequences_parallel(sequences, num_workers=64):
-    """Parallelized encoding of sequences using multiprocessing."""
-    with mp.Pool(num_workers) as pool:
-        encoded_sequences = pool.map(encode_sequence, sequences)
-    return encoded_sequences
+# def encode_sequences_parallel(sequences, num_workers=64):
+#     """Parallelized encoding of sequences using multiprocessing."""
+#     with mp.Pool(num_workers) as pool:
+#         encoded_sequences = pool.map(encode_sequence, sequences)
+#     return encoded_sequences
 
 tf.config.optimizer.set_jit(True)
 
@@ -115,6 +115,8 @@ def model_predictions(parquet_file, chunk_start, chunk_size, model_path, model_p
     # Estimate the average read length from the bin name and adjust chunk size
     estimated_avg_length = estimate_average_read_length_from_bin(bin_name)
     dynamic_chunk_size = int(chunk_size * (500 / estimated_avg_length))  # Scale chunk size dynamically
+
+    dynamic_chunk_size = min(dynamic_chunk_size, 500000)
 
     scan_df = pl.scan_parquet(parquet_file)
 

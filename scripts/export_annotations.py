@@ -46,12 +46,13 @@ def process_full_length_reads_in_chunks_and_save(reads, original_read_names, mod
     
     logging.info(f"Processing chunk: number of reads = {reads_in_chunk}\n")
 
-    n_jobs = min(n_jobs, reads_in_chunk)
-    lengths = actual_lengths
+    # n_jobs = min(n_jobs, reads_in_chunk)
+    n_jobs = min(16, reads_in_chunk)
+    # lengths = actual_lengths 
     chunk_contiguous_annotated_sequences = extract_annotated_full_length_seqs(reads, predictions, model_path_w_CRF,
-                                                                              lengths, label_binarizer, seq_order, 
+                                                                              actual_lengths, label_binarizer, seq_order, 
                                                                               barcodes, n_jobs)
-    
+
     logging.info(f"Preparing predictions for barcode correction and demultiplexing\n")
     chunk_df = pd.DataFrame.from_records(
     (
@@ -109,6 +110,7 @@ def process_full_length_reads_in_chunks_and_save(reads, original_read_names, mod
                 if write_header:
                     writer.writerow(tmp_invalid_df.columns)
                 writer.writerows(tmp_invalid_df.rows())
+        # del tmp_invalid_df
 
     else:
         # Save invalid reads to a separate file
@@ -118,6 +120,7 @@ def process_full_length_reads_in_chunks_and_save(reads, original_read_names, mod
                 add_header = not os.path.exists(invalid_output_file) or os.path.getsize(invalid_output_file) == 0
                 invalid_reads_df.to_csv(invalid_output_file, sep='\t', index=False, mode='a', header=add_header)
             print(f"Saved {len(invalid_reads_df)} invalid reads to {invalid_output_file}")
+        # del invalid_reads_df
 
     logging.info(f"Prepared predictions for barcode correction and demultiplexing\n")
     
@@ -162,8 +165,11 @@ def process_full_length_reads_in_chunks_and_save(reads, original_read_names, mod
             corrected_df.to_csv(valid_output_file, sep='\t', index=False, mode='a', header=add_header)
         logging.info(f"Processed and saved {len(corrected_df)} valid reads to {valid_output_file}")
 
-        # return match_type_counts, cell_id_counts, cumulative_barcodes_stats, reason_counter
         return match_type_counts, cell_id_counts, cumulative_barcodes_stats
+    
+    for local_df in ["chunk_df", "corrected_df", "invalid_reads_df", "valid_reads_df"]:
+        if local_df:
+            del local_df
 
     # Clean up after each chunk to free memory
     gc.collect()

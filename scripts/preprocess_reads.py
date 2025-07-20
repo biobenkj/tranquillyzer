@@ -1,4 +1,5 @@
 import os
+import gc
 import gzip
 import logging
 import time
@@ -13,6 +14,14 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 def determine_bin(length, bin_size=500):
+    if length < 10000:
+        bin_size = bin_size
+    elif length < 50000:
+        bin_size = 5000
+    elif length < 100000:
+        bin_size = 10000
+    else:
+        bin_size = 25000
     bin_start = (length // bin_size) * bin_size
     bin_end = bin_start + bin_size - 1
     return f"{bin_start}_{bin_end}bp"
@@ -117,6 +126,8 @@ def convert_tsv_to_parquet(tsv_dir, row_group_size=1000000):
             # Remove the TSV file after conversion
             os.remove(tsv_file)
             logger.info(f"Removed original TSV file: {tsv_file}")
+            del df
+            gc.collect()
 
         except Exception as e:
             logger.error(f"Error converting {tsv_file} to Parquet: {e}")

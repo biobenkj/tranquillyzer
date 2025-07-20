@@ -1,4 +1,4 @@
-name: tranquilizer
+name: tranquillyzer
 channels:
   - conda-forge
   - nvidia
@@ -23,3 +23,5 @@ dependencies:
      - pysam
      - bcbio-gff
      - scikit-learn
+     - tf2crf
+     - psutil

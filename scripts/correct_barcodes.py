@@ -1,4 +1,6 @@
 import os
+import gc
+import tensorflow as tf
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
@@ -78,7 +80,6 @@ def process_row(row, barcode_columns, whitelist_dict, whitelist_df, threshold, o
     result = {
         'ReadName': row['ReadName'],
         'read_length': row['read_length'],
-        # 'read': row['read'],
         'cDNA_Starts': row['cDNA_Starts'],
         'cDNA_Ends': row['cDNA_Ends'],
         'cDNA_length': int(row['cDNA_Ends']) - int(row['cDNA_Starts']) + 1,
@@ -136,7 +137,6 @@ def process_row(row, barcode_columns, whitelist_dict, whitelist_df, threshold, o
 
     batch_reads = defaultdict(list)
     batch_reads[corrected_barcode_seqs_str].append(
-        # (f">{row['ReadName']}|cell_id:{cell_id}|Barcodes:{corrected_barcodes_str}|UMI:{umi_sequence}", cDNA_sequence)
         (f">{row['ReadName']}_{corrected_barcode_seqs_str}_{umi_sequence} cell_id:{cell_id}|Barcodes:{corrected_barcodes_str}|UMI:{umi_sequence}", cDNA_sequence)
     )
     return result, local_match_counts, local_cell_counts, batch_reads
@@ -145,9 +145,21 @@ def bc_n_demultiplex(chunk, barcode_columns, whitelist_dict, whitelist_df, thres
                      demuxed_fasta, demuxed_fasta_lock, ambiguous_fasta, ambiguous_fasta_lock, num_cores):
     args = [(row, barcode_columns, whitelist_dict, whitelist_df, threshold, output_dir) for _, row in chunk.iterrows()]
     batch_reads = defaultdict(list)
+    results = []
 
-    with Pool(num_cores) as pool:
-        results = list(tqdm(pool.starmap(process_row, args), total=len(chunk), desc="Processing rows"))
+    if num_cores > 1:
+        with Pool(num_cores) as pool:
+            results = list(tqdm(pool.starmap(process_row, args), total=len(chunk), desc="Processing rows"))
+
+    elif num_cores == 1:
+         # Loop through each row sequentially instead of using multiprocessing
+        for arg in tqdm(args, total=len(chunk), desc="Processing rows (no parallelism)"):
+            result = process_row(*arg)
+            results.append(result)
+
+    gc.collect()
+    tf.keras.backend.clear_session()
+    gc.collect()
 
     processed_results = [res[0] for res in results]
     all_match_type_counts = [res[1] for res in results]

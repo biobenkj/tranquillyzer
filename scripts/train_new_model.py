@@ -2,6 +2,7 @@ from tensorflow.keras.layers import (
     Input, Embedding, Conv1D, BatchNormalization, Dropout, 
     Bidirectional, LSTM, Dense, TimeDistributed, Add, MultiHeadAttention
 )
+from tensorflow.keras.losses import CategoricalCrossentropy
 from tensorflow.keras.optimizers.legacy import Adam
 import pickle
 import numpy as np
@@ -99,7 +100,8 @@ def ont_read_annotator(
         model.compile(optimizer=optimizer)
     else:
         model = Model(inputs, logits)
+        loss_fn = CategoricalCrossentropy(from_logits=True)
         model.compile(optimizer=optimizer, 
-                      loss="categorical_crossentropy", 
+                      loss=loss_fn, 
                       metrics=["accuracy"])
     return model
