@@ -1,2 +1,2 @@
 # scripts/__init__.py
-"""Scripts package for Tranquilizer."""
+"""Scripts package for Tranquillyzer."""
