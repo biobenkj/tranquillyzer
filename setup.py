@@ -1,7 +1,7 @@
 from setuptools import setup
 
 setup(
-    name='tranquilizer',
+    name='tranquillyzer',
     version='0.1.0',
     packages=['.', 'scripts', 'utils'],
     py_modules=['main'], 
@@ -16,7 +16,7 @@ setup(
     ],
     entry_points={
         'console_scripts': [
-            'tranquilizer=main:app',
+            'tranquillyzer=main:app',
         ],
     },
     python_requires='>=3.10,<3.11',
