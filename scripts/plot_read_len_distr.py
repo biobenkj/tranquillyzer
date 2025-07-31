@@ -37,13 +37,15 @@ def plot_read_len_distr(parquet_dir, output_dir):
         print("No valid read lengths found after loading.")
         return
 
-    log_read_lengths = np.log10(read_lengths[read_lengths > 0])
+    # log_read_lengths = np.log10(read_lengths[read_lengths > 0])
+    read_lengths = read_lengths[(read_lengths > 0) & (read_lengths < 6000)]
 
     # Plot the read length distribution
     plt.figure(figsize=(10, 6))
-    plt.hist(log_read_lengths, bins=100, color='skyblue', edgecolor='black', alpha=0.7)
-    plt.title('Log Read Length Distribution')
-    plt.xlabel('Log10(Read Length)')
+    plt.hist(read_lengths, bins=100, color='skyblue', edgecolor='black', alpha=0.7)
+    # plt.hist(log_read_lengths, bins=100, color='skyblue', edgecolor='black', alpha=0.7)
+    plt.title('Read Length Distribution')
+    plt.xlabel('Read Length')
     plt.ylabel('Frequency')
     plt.grid(True)
 

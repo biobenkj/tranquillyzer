@@ -686,7 +686,7 @@ def dedup(
 
     start = time.time()
     input_bam = os.path.join(input_dir,"aligned_files/demuxed_aligned.bam")
-    out_bam = os.path.join(input_dir, "aligned_files/demuxed_aligned_deduped.bam")
+    out_bam = os.path.join(input_dir, "aligned_files/demuxed_aligned_dup_marked.bam")
     deduplication_parallel(input_bam, out_bam, lv_threshold, per_cell, threads, stranded)
 
     usage = resource.getrusage(resource.RUSAGE_CHILDREN) 
