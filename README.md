@@ -112,12 +112,12 @@ The directory storing all the raw reads in **fasta/fa/fasta.gz/fa.gz/fastq/fq/fa
 
 ### <ins>Preprocessing</ins>
 
-To enhance the efficiency of the annotation process, tranquillyzer organizes raw reads into separate .parquet files, grouping them based on their lengths. This approach optimizes data compression within each bin, accelerates the annotation of the entire dataset, and facilitates the visualization of user-specified annotated reads without dependence on the annotation status of the complete dataset.
+To enhance the efficiency of the annotation process, tranquillyzer organizes raw reads into separate .parquet files, grouping them based on their lengths. This approach optimizes data compression within each bin, accelerates the annotation of the entire dataset, and facilitates the visualization of user-specified annotated reads without dependence on the annotation status of the complete dataset. Parallelization benefits are maximized when input data is provided as multiple files, as Tranquillyzer can distribute preprocessing and annotation tasks more effectively across CPU and GPU resources. Therefore, if raw data for a sample is available in separate files, we recommend preserving that structure rather than combining them into a single large file.
 
 Example usage:
 
 ```console
-tranquillyzer preprocessfasta /path/to/RAW_DATA/directory /path/to/OUTPUT/directory CPU_THREADS
+tranquillyzer preprocessfasta /path/to/RAW_DATA/directory /path/to/OUTPUT/directory --threads {CPU_THREADS}
 ```
 It is recommended that you follow the directory structure as in the exmples.
 
@@ -144,12 +144,17 @@ Reads can be annotated, followed by barcode extraction, correction, and assignme
     3. full_read_annots.pdf
 All QC plots are saved in /path/to/OUTPUT/directory/plots/.
 
-**Note**: Before running the annotate-reads command, ensure you select the appropriate model for your dataset. If unsure, use the command `tranquillyzer availablemodels` to view the available models.
+**Note**: Before running the annotate-reads command, ensure you select the appropriate model and model type for your dataset. Tranquillyzer supports multiple model types:
+* REG (standard CNN-LSTM)
+* CRF (CNN-LSTM with a CRF layer for improved label consistency)
+* HYB (hybrid mode, which runs REG first and reprocesses invalid reads with CRF).
+
+If unsure, use the command `tranquillyzer availablemodels` to view the available models.
 
 Example usage:
 
 ```console
-tranquillyzer annotate-reads MODEL_NAME /path/to/OUTPUT/directory /path/to/BARCODE_WHITELIST --chunk-size 100000 --njobs @CPU_threads
+tranquillyzer annotate-reads MODEL_NAME /path/to/OUTPUT/directory /path/to/BARCODE_WHITELIST --model-type CRF --chunk-size 100000 --threads @CPU_threads
 ```
 
 ### <ins>Read visualization</ins>
