@@ -1,6 +1,8 @@
 # Tranquillyzer
 
-Tranquillyzer is a Deep Learning (DL) based tool to annotate, visualize the annotated reads, demultiplex for single-cell long-reads data including **TRANQUIL-seq** and 10x 3' and 5' libraries and generate some inital QC plots. 
+Tranquillyzer (TRANscript QUantification In Long reads-anaLYZER), is a flexible, architecture-aware deep learning framework for processing long-read single-cell RNA-seq data. It employs a hybrid neural network architecture and a global, context-aware design, and enables precise identification of structural elements. In addition to supporting established single-cell protocols, Tranquillyzer accommodates custom library formats through rapid, one-time model training on user-defined label schemas, typically completed within a few hours on standard GPUs.
+
+For a detailed description of the framework, benchmarking results, and application to real datasets, please refer to the [preprint](https://www.biorxiv.org/content/10.1101/2025.07.25.666829v1).
 
 ## Overview
 
