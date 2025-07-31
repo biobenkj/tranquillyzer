@@ -119,7 +119,7 @@ To enhance the efficiency of the annotation process, tranquillyzer organizes raw
 Example usage:
 
 ```console
-tranquillyzer preprocessfasta /path/to/RAW_DATA/directory /path/to/OUTPUT/directory --threads {CPU_THREADS}
+tranquillyzer preprocessfasta /path/to/RAW_DATA/directory /path/to/OUTPUT/directory --threads CPU_THREADS
 ```
 It is recommended that you follow the directory structure as in the exmples.
 
@@ -166,7 +166,19 @@ The command `tranquillyzer availablemodels` displays available models in the mod
 Example usage:
 
 ```console
-tranquillyzer annotate-reads MODEL_NAME /path/to/OUTPUT/directory /path/to/BARCODE_WHITELIST --model-type CRF --chunk-size 100000 --threads @CPU_threads
+tranquillyzer annotate-reads MODEL_NAME /path/to/OUTPUT/directory /path/to/BARCODE_WHITELIST --model-type CRF --chunk-size 100000 --threads CPU_THREADS
+```
+
+### <ins>Alignment</ins>
+
+```console
+tranquilizer align INPUT_DIR REFERENCE OUTPUT_DIR --preset MINIMAP2_PRESET --threads CPU_THREADS
+```
+
+### <ins>Duplicate Marking</ins>
+
+```console
+tranquilizer dedup INPUT_DIR --lv-threshold EDIT_DISTANCE_THRESHOLD --threads CPU_THREADS
 ```
 
 ### <ins>Read visualization</ins>
@@ -176,9 +188,7 @@ Annotated reads can be inspected independently of the `annotate-reads` processâ€
 Example usage:
 
 ```console
-tranquillyzer visualize MODEL_NAME /path/to/OUTPUT/directory --read-names READ_NAME_1,READ_NAME_2,READ_NAME3
+tranquillyzer visualize MODEL_NAME /path/to/OUTPUT/directory --output-file OUTPUT_FILE_NAME --model-type CRF --read-names READ_NAME_1,READ_NAME_2,READ_NAME3
 ``` 
-
-
 
 ** More detailed usage instructions coming soon **
