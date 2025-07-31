@@ -1,6 +1,6 @@
 # Tranquillyzer
 
-Tranquillyzer (TRANscript QUantification In Long reads-anaLYZER), is a flexible, architecture-aware deep learning framework for processing long-read single-cell RNA-seq data. It employs a hybrid neural network architecture and a global, context-aware design, and enables precise identification of structural elements. In addition to supporting established single-cell protocols, Tranquillyzer accommodates custom library formats through rapid, one-time model training on user-defined label schemas, typically completed within a few hours on standard GPUs.
+**Tranquillyzer** (**TRAN**script **QU**antification **I**n **L**ong reads-ana**LYZER**), is a flexible, architecture-aware deep learning framework for processing long-read single-cell RNA-seq data. It employs a hybrid neural network architecture and a global, context-aware design, and enables precise identification of structural elements. In addition to supporting established single-cell protocols, Tranquillyzer accommodates custom library formats through rapid, one-time model training on user-defined label schemas, typically completed within a few hours on standard GPUs.
 
 For a detailed description of the framework, benchmarking results, and application to real datasets, please refer to the [preprint](https://www.biorxiv.org/content/10.1101/2025.07.25.666829v1).
 
@@ -151,7 +151,17 @@ All QC plots are saved in /path/to/OUTPUT/directory/plots/.
 * CRF (CNN-LSTM with a CRF layer for improved label consistency)
 * HYB (hybrid mode, which runs REG first and reprocesses invalid reads with CRF).
 
-If unsure, use the command `tranquillyzer availablemodels` to view the available models.
+To select a model type (REG, CRF, or HYB), simply specify the base model name. Tranquillyzer will automatically detect the presence of the corresponding _w_CRF model file for CRF or HYB modes.
+
+Model naming conventions:
+	•	The REG model uses the base name (e.g., 10x3p_sc_ont_011.h5)
+	•	The CRF model includes _w_CRF in its name (e.g., 10x3p_sc_ont_011_w_CRF.h5)
+
+If only one version (REG or CRF) is available for a model, the user must select the corresponding model type explicitly. We recommend verifying which model versions are present before running annotate-reads.
+
+Currently available trained models can be downloaded from this [link](https://www.dropbox.com/scl/fo/3lms8n97bnufzqa4ausv9/AGkO3EVrL1ZgctwEwTK1mEA?rlkey=47m69a6smwsisdznbwu3jvjpu&st=253al7s3&dl=0) and should be placed in the models/ folder within the cloned Tranquillyzer repository.
+
+The command `tranquillyzer availablemodels` displays available models in the models/ folder within the cloned Tranquillyzer repository.
 
 Example usage:
 
