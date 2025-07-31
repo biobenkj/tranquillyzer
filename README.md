@@ -8,7 +8,7 @@ For a detailed description of the framework, benchmarking results, and applicati
 
 ### Preprocessing
 
-Tranquillyzer implements a length-aware binning strategy that partitions reads into discrete, size-based bins (e.g., 0-499 bp, 500-999 bp, and so on) (Figure 1A). Each bin is written to a separate Parquet file, and binning is performed in parallel across multiple CPU threads to maximize preprocessing throughput. This strategy ensures that reads of similar lengths are grouped together, minimizing unnecessary padding and optimizing GPU memory consumption. In parallel, Tranquillyzer generates a lightweight index, mapping each read to its corresponding bin. This index enables rapid retrieval of individual reads for targeted visualization or debugging via the visualize sub-command, without reloading the full dataset.
+Tranquillyzer implements a length-aware binning strategy that partitions reads into discrete, size-based bins (e.g., 0-499 bp, 500-999 bp, and so on). Each bin is written to a separate Parquet file, and binning is performed in parallel across multiple CPU threads to maximize preprocessing throughput. This strategy ensures that reads of similar lengths are grouped together, minimizing unnecessary padding and optimizing GPU memory consumption. In parallel, Tranquillyzer generates a lightweight index, mapping each read to its corresponding bin. This index enables rapid retrieval of individual reads for targeted visualization or debugging via the visualize sub-command, without reloading the full dataset.
 
 ### Read Annotation and Demultiplexing
 
