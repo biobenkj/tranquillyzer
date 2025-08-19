@@ -1,0 +1,47 @@
+name: Run Pytest
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Set up Miniconda
+        uses: conda-incubator/setup-miniconda@v2
+        with:
+          activate-environment: tranquillyzer
+          environment-file: environment.yml
+          auto-activate-base: false
+          miniforge-variant: Mambaforge
+          miniforge-version: 22.9.0-2
+          use-mamba: true
+          python-version: "3.10"
+
+      - name: Install Python packages (extra)
+        shell: bash -l {0}
+        run: |
+          pip install "tensorflow[and-cuda]==2.15" --extra-index-url https://pypi.nvidia.com
+          pip install tensorflow-addons
+          pip install -e .
+          pip install pytest pytest-order
+
+      - name: Download model and reference
+        shell: bash -l {0}
+        run: |
+         mkdir -p tests/10x3p/data tests/references
+         curl -L "https://www.dropbox.com/scl/fi/re7f2s36jr3mijdwpvvc7/10x3p_sc_ont_011_w_CRF.h5?rlkey=7pcxny332fuctr3aw1xew5j8z&dl=1" -o models/10x3p_sc_ont_011_w_CRF.h5
+         curl -L "https://www.dropbox.com/scl/fi/umoonedt500khhhvebu7r/10x3p_sc_ont_011_w_CRF_params.json?rlkey=28xl4toxtzzff60954dhv1m4t&dl=1" -o models/10x3p_sc_ont_011_w_CRF_params.json
+         curl -L "https://www.dropbox.com/scl/fi/313vfpp5usgknfi9o375n/10x3p_sc_ont_011_w_CRF_lbl_bin.pkl?rlkey=ofc6drcra7rs1js0t71psavu0&dl=1" -o models/10x3p_sc_ont_011_w_CRF_lbl_bin.pkl
+         curl -L "https://www.dropbox.com/scl/fi/9203pc2gz45u419kze446/hg38_gencode_chr21.fa?rlkey=k1co80pso7zsvb8oiqqc1o1dy&st=e0e92h5h&dl=1" -o tests/references/hg38_gencode_chr21.fa
+
+      - name: Run Pytest
+        shell: bash -l {0}
+        run: pytest
