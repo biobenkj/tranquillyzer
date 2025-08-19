@@ -1,13 +1,10 @@
 import os
 import gc
 import json
-import pickle
 import logging
 import numpy as np
 import polars as pl
-import numpy as np
 import tensorflow as tf
-import multiprocessing as mp
 
 from numba import njit
 
@@ -15,7 +12,10 @@ from scripts.train_new_model import ont_read_annotator
 from tensorflow.keras.models import load_model
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
 # Create a NumPy lookup array (256 elements to handle all ASCII characters)

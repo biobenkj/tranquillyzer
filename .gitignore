@@ -11,6 +11,16 @@
 # Ignore everything in models folder
 models/*
 
+# Ignore references and analysis files
+
+tests/references
+tests/10x3p/*
+
+!tests/10x3p/test_pipeline.py
+!tests/10x3p/barcodes.tsv
+!tests/10x3p/data/
+!tests/10x3p/data/**
+
 # But not __init__.py
 !models/__init__.py
 
