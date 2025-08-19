@@ -5,7 +5,7 @@ import pytest
 raw_input_dir = Path("tests/10x3p/data")
 output_dir = Path("tests/10x3p")
 barcodes = Path("tests/10x3p/barcodes.tsv")
-reference_fasta = Path("tests/references/hg38_gencode.fa")
+reference_fasta = Path("tests/references/hg38_gencode_chr21.fa")
 threads = 2
 
 output_dir.mkdir(exist_ok=True, parents=True)
