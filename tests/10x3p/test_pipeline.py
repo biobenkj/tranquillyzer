@@ -11,10 +11,11 @@ threads = 4
 output_dir.mkdir(exist_ok=True, parents=True)
 
 
-def run_cmd(cmd):
+def run_cmd(cmd, timeout=600):
     print(f"\n>> Running: {' '.join(cmd)}")
     result = subprocess.run(cmd, stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE)
+                            stderr=subprocess.PIPE,
+                            timeout=timeout)
     print(result.stdout.decode())
     print(result.stderr.decode())
     assert result.returncode == 0, f"Command failed: {' '.join(cmd)}"
