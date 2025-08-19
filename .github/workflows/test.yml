@@ -36,11 +36,11 @@ jobs:
       - name: Download model and reference
         shell: bash -l {0}
         run: |
-          mkdir -p tests/10x3p/data tests/references
-          curl -L "https://www.dropbox.com/scl/fi/re7f2s36jr3mijdwpvvc7/10x3p_sc_ont_011_w_CRF.h5?rlkey=7pcxny332fuctr3aw1xew5j8z&st=nm3oj8b1&dl=0" -o models/10x3p_sc_ont_011_w_CRF.h5
-          curl -L "<https://www.dropbox.com/scl/fi/umoonedt500khhhvebu7r/10x3p_sc_ont_011_w_CRF_params.json?rlkey=28xl4toxtzzff60954dhv1m4t&st=j2w9rnkv&dl=0" -o models/10x3p_sc_ont_011_w_CRF_params.json
-          curl -L "<https://www.dropbox.com/scl/fi/313vfpp5usgknfi9o375n/10x3p_sc_ont_011_w_CRF_lbl_bin.pkl?rlkey=ofc6drcra7rs1js0t71psavu0&st=ioeyvaot&dl=0" -o models/10x3p_sc_ont_011_w_CRF_lbl_bin.pkl
-          curl -L "https://www.dropbox.com/scl/fi/n8h4n8u978ngdtipm1vtl/hg38_gencode.fa?rlkey=qb7n1g9ajnf0ecw61bm91gqq0&st=fsxapaev&dl=0" -o tests/references/hg38_gencode.fa
+         mkdir -p tests/10x3p/data tests/references
+         curl -L "https://www.dropbox.com/scl/fi/re7f2s36jr3mijdwpvvc7/10x3p_sc_ont_011_w_CRF.h5?rlkey=7pcxny332fuctr3aw1xew5j8z&dl=1" -o models/10x3p_sc_ont_011_w_CRF.h5
+         curl -L "https://www.dropbox.com/scl/fi/umoonedt500khhhvebu7r/10x3p_sc_ont_011_w_CRF_params.json?rlkey=28xl4toxtzzff60954dhv1m4t&dl=1" -o models/10x3p_sc_ont_011_w_CRF_params.json
+         curl -L "https://www.dropbox.com/scl/fi/313vfpp5usgknfi9o375n/10x3p_sc_ont_011_w_CRF_lbl_bin.pkl?rlkey=ofc6drcra7rs1js0t71psavu0&dl=1" -o models/10x3p_sc_ont_011_w_CRF_lbl_bin.pkl
+         curl -L "https://www.dropbox.com/scl/fi/n8h4n8u978ngdtipm1vtl/hg38_gencode.fa?rlkey=qb7n1g9ajnf0ecw61bm91gqq0&dl=1" -o tests/references/hg38_gencode.fa
 
       - name: Run Pytest
         shell: bash -l {0}
