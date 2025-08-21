@@ -7,23 +7,23 @@ channels:
 dependencies:
   - python=3.10.12
   - pip
-  - pandas
-  - polars
-  - matplotlib
-  - seaborn
-  - tqdm
-  - filelock
-  - numba
-  - typer
-  - rapidfuzz
-  - python-Levenshtein
-  - minimap2
-  - samtools
+  - pandas=2.3.1
+  - polars=1.32.3
+  - matplotlib=3.10.5
+  - seaborn=0.13.2
+  - tqdm=4.67.1
+  - filelock=3.19.1
+  - numba=0.61.2
+  - typer=0.16.0
+  - rapidfuzz=3.13.0
+  - python-Levenshtein=0.27.1
+  - minimap2=2.30
+  - samtools=1.22.1
   - pip:
-     - numpy
-     - biopython
-     - pysam
-     - bcbio-gff
-     - scikit-learn
-     - tf2crf
-     - psutil
+     - numpy==1.26.4
+     - biopython==1.85
+     - pysam==0.23.3
+     - bcbio-gff==0.7.1
+     - scikit-learn==1.7.1
+     - tf2crf==0.1.33
+     - psutil==7.0.0

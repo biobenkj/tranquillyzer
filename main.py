@@ -68,14 +68,18 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-############# available trained models ################
+# =========================
+# available trained models
+# =========================
 
 
 @app.command()
 def availableModels():
     trained_models()
 
-############# extract reads, read_names from fasta file ################
+# ===========================================
+# extract reads, read_names from fasta file
+# ===========================================
 
 
 @app.command()
@@ -130,7 +134,10 @@ def preprocess(fasta_dir: str, output_dir: str,
     logger.info(f"Peak memory usage during alignment: {max_rss_mb:.2f} MB")
     logger.info(f"Elapsed time: {time.time() - start:.2f} seconds")
 
-# ############# plot read length distribution ################
+# ==============================
+# plot read length distribution
+# ==============================
+
 
 @app.command()
 def readlengthDist(output_dir: str):
@@ -149,9 +156,12 @@ def readlengthDist(output_dir: str):
     logger.info(f"Peak memory usage during alignment: {max_rss_mb:.2f} MB")
     logger.info(f"Elapsed time: {time.time() - start:.2f} seconds")
 
-############# inspect selected reads for annotations ################
+# ===========================================
+# inspect selected reads for annotations
+# ===========================================
 
 
+# Return the associated Parquet file for the read name
 def load_read_index(index_file_path, read_name):
     df = (
         pl.read_parquet(index_file_path)
@@ -160,7 +170,7 @@ def load_read_index(index_file_path, read_name):
     if df.is_empty():
         logger.warning(f"Read {read_name} not found in the index.")
         return None
-    return df["ParquetFile"][0]  # Return the associated Parquet file for the read name
+    return df["ParquetFile"][0]
 
 
 @app.command()
@@ -342,7 +352,9 @@ def visualize(model_name: str,
     logger.info(f"Peak memory usage during alignment: {max_rss_mb:.2f} MB")
     logger.info(f"Elapsed time: {time.time() - start:.2f} seconds")
 
-############# Annotate all the reads ################
+# =========================
+# Annotate all the reads
+# =========================
 
 
 @app.command()
@@ -720,7 +732,9 @@ def annotate_reads(
     logger.info(f"Peak memory usage during annotation/barcode correction/demuxing: {max_rss_mb:.2f} MB")
     logger.info(f"Elapsed time: {time.time() - start:.2f} seconds")
 
-##################### align inserts to the reference genome #####################
+# ======================================
+# align inserts to the reference genome
+# ======================================
 
 
 @app.command()
@@ -768,7 +782,9 @@ def align(
     logger.info(f"Peak memory usage during alignment: {max_rss_mb:.2f} MB")
     logger.info(f"Elapsed time: {time.time() - start:.2f} seconds")
 
-################### Deduplication using UMI-tools ##################
+# ==============================
+# Deduplication using UMI-tools
+# ==============================
 
 
 @app.command()
@@ -790,7 +806,9 @@ def dedup(
     logger.info(f"Peak memory usage during alignment: {max_rss_mb:.2f} MB")
     logger.info(f"Elapsed time: {time.time() - start:.2f} seconds")
 
-################## Simulate training dataset #####################
+# ===========================
+# Simulate training dataset
+# ===========================
 
 
 @app.command()
@@ -869,7 +887,9 @@ def simulate_data(model_name: str,
         pickle.dump(labels, labels_pkl)
     logger.info("Outputs saved")
 
-################## Train model #################
+# ===============
+#  Train model
+# ===============
 
 
 @app.command()

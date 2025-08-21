@@ -57,18 +57,18 @@ mamba env create -f environment.yml
 conda activate tranquillyzer
 ```
 
-### 4. <ins>Install GPU-enabled TensorFlow 2.15 with CUDA 11.8 support</ins>
+### 4. <ins>Install GPU-enabled TensorFlow 2.15 with CUDA support</ins>
 
 This ensures compatibility with your GPU and avoids system-wide CUDA requirements:
 
 ```bash
-python -m pip install "tensorflow[and-cuda]==2.15" --extra-index-url https://pypi.nvidia.com
+pip install "tensorflow[and-cuda]==2.15.1" --extra-index-url https://pypi.nvidia.com
 ```
 
 Then install TensorFlow Addons:
 
 ```bash
-pip install tensorflow-addons
+pip install "tensorflow-addons==0.22.*"
 ```
 
 ### 5. <ins>Install tranquillyzer (in editable mode)</ins>
