@@ -27,3 +27,5 @@ dependencies:
      - scikit-learn==1.7.1
      - tf2crf==0.1.33
      - psutil==7.0.0
+     - pytest==8.4.1
+     - pytest-cov==6.2.1

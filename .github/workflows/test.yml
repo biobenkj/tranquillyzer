@@ -45,3 +45,17 @@ jobs:
       - name: Run Pytest
         shell: bash -l {0}
         run: pytest
+      
+      - name: Run Pytest with coverage
+        shell: bash -l {0}
+        run: |
+          pytest --maxfail=1 -q \
+                 --cov=tranquillyzer \
+                 --cov-report=term-missing \
+                 --cov-report=xml:coverage.xml
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage.xml
+          fail_ci_if_error: true

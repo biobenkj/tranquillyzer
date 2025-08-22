@@ -32,3 +32,8 @@ __pycache__/
 *.pyomodels/
 tranquilizer.egg-info/
 tranquillyzer.egg-info/
+
+# ignore coverage reports
+.coverage
+coverage.xml
+htmlcov/
