@@ -34,8 +34,8 @@ def test_readlengthdist():
 
 @pytest.mark.order(3)
 def test_annotate_reads():
-    run_cmd(["tranquillyzer", "annotate-reads", "10x3p_sc_ont_011",
-             str(output_dir), str(barcodes), "--model-type", "CRF",
+    run_cmd(["tranquillyzer", "annotate-reads", str(output_dir),
+             str(barcodes), "--model-type", "CRF",
              "--chunk-size", str(100000), "--threads", str(threads)])
 
 
