@@ -44,9 +44,17 @@ cd tranquillyzer
 
 ### 2. <ins>Add Model Files</ins>
 
-Before proceeding with the installation, manually place the required model files inside the models/ directory:
+Before proceeding with the installation, download the model files from this [link](https://www.dropbox.com/scl/fo/3lms8n97bnufzqa4ausv9/AGkO3EVrL1ZgctwEwTK1mEA?rlkey=47m69a6smwsisdznbwu3jvjpu&st=253al7s3&dl=0) and manually place the required model files inside the models/ directory:
+
+For REG model, the following files are required:
 * <model_name>.h5
 * <model_name>_lbl_bin.pkl
+
+Whereas for CRF model, the following files are required:
+* <model_name>_w_CRF.h5
+* <model_name>_w_CRF_lbl_bin.pkl
+* <model_name>_w_CRF_params.json
+
 
 These files are needed for annotation and visualization functionality.
 
@@ -108,7 +116,7 @@ You should see the CLI help message with available commands like:
 
 ## I/O
 
-The directory storing all the raw reads in **fasta/fa/fasta.gz/fa.gz/fastq/fq/fastq.gz/fq.gz** is provided as the input and the tool generates demultiplexed fasta files along with valid and invalid annotated **.parquet** files and some QC .pdf files as the outputs in two separate steps/commands (preprocessfasta and annotate-reads). Check out the examples drectory for both **TRAQNUIL-seq** and **scNanoRNASeq** datasets.
+The directory storing all the raw reads in **fasta/fa/fasta.gz/fa.gz/fastq/fq/fastq.gz/fq.gz** is provided as the input and the tool generates demultiplexed fasta files along with valid and invalid annotated **.parquet** files and some QC .pdf files as the outputs in two separate steps/commands (preprocessfasta and annotate-reads).
 
 ## Usage
 
@@ -119,7 +127,8 @@ To enhance the efficiency of the annotation process, tranquillyzer organizes raw
 Example usage:
 
 ```console
-tranquillyzer preprocessfasta /path/to/RAW_DATA/directory /path/to/OUTPUT/directory --threads CPU_THREADS
+tranquillyzer preprocess /path/to/RAW_DATA/directory /path/to/OUTPUT/directory \
+    --threads CPU_THREADS
 ```
 It is recommended that you follow the directory structure as in the exmples.
 
@@ -161,24 +170,29 @@ If only one version (REG or CRF) is available for a model, the user must select 
 
 Currently available trained models can be downloaded from this [link](https://www.dropbox.com/scl/fo/3lms8n97bnufzqa4ausv9/AGkO3EVrL1ZgctwEwTK1mEA?rlkey=47m69a6smwsisdznbwu3jvjpu&st=253al7s3&dl=0) and should be placed in the models/ folder within the cloned Tranquillyzer repository.
 
-The command `tranquillyzer availablemodels` displays available models in the models/ folder within the cloned Tranquillyzer repository.
+The command `tranquillyzer availablemodels` displays available models in the models/ folder within the cloned Tranquillyzer repository. The read architecture and exact sequences used to train the model are also shown with availablemodels.
 
 Example usage:
 
 ```console
-tranquillyzer annotate-reads MODEL_NAME /path/to/OUTPUT/directory /path/to/BARCODE_WHITELIST --model-type CRF --chunk-size 100000 --threads CPU_THREADS
+tranquillyzer annotate-reads /path/to/OUTPUT/directory /path/to/BARCODE_WHITELIST \
+    --model-name MODEL_NAME --model-type CRF \
+    --chunk-size 100000 --threads CPU_THREADS
 ```
 
 ### <ins>Alignment</ins>
 
 ```console
-tranquilizer align INPUT_DIR REFERENCE OUTPUT_DIR --preset MINIMAP2_PRESET --threads CPU_THREADS
+tranquilizer align INPUT_DIR REFERENCE OUTPUT_DIR \
+    --preset MINIMAP2_PRESET --threads CPU_THREADS
 ```
 
 ### <ins>Duplicate Marking</ins>
 
 ```console
-tranquilizer dedup INPUT_DIR --lv-threshold EDIT_DISTANCE_THRESHOLD --threads CPU_THREADS
+tranquilizer dedup INPUT_DIR \
+    --lv-threshold EDIT_DISTANCE_THRESHOLD \
+    --threads CPU_THREADS
 ```
 
 ### <ins>Read visualization</ins>
@@ -188,7 +202,10 @@ Annotated reads can be inspected independently of the `annotate-reads` processâ€
 Example usage:
 
 ```console
-tranquillyzer visualize MODEL_NAME /path/to/OUTPUT/directory --output-file OUTPUT_FILE_NAME --model-type CRF --read-names READ_NAME_1,READ_NAME_2,READ_NAME3
-``` 
+tranquillyzer visualize /path/to/OUTPUT/directory \
+    --output-file OUTPUT_FILE_NAME \
+    --model-name MODEL_NAME --model-type CRF \
+    --read-names READ_NAME_1,READ_NAME_2,READ_NAME3
+```
 
 ** More detailed usage instructions coming soon **

@@ -174,12 +174,15 @@ def load_read_index(index_file_path, read_name):
 
 
 @app.command()
-def visualize(model_name: str,
-              output_dir: str,
+def visualize(output_dir: str,
               output_file: str = typer.Option(
                   "full_read_annots",
-                  help=("Output annotation file name. "
-                        "Extension .pdf will be added automatically")),
+                  help=("""Output annotation file name.\n
+                        Extension .pdf will be added automatically""")),
+              model_name: str = typer.Option(
+                  "10x3p_sc_ont_011",
+                  help="""Base model name. Use the name of the model without any suffix.\n
+                  For model-type CRF, _w_CRF will be added to the base model name"""),
               model_type: Annotated[
                   str, typer.Option(help="""
                                     [red]REG[/red] = [green]CNN-LSTM[/green]\n
@@ -359,9 +362,12 @@ def visualize(model_name: str,
 
 @app.command()
 def annotate_reads(
-    model_name: str,
     output_dir: str,
     whitelist_file: str,
+    model_name: str = typer.Option(
+        "10x3p_sc_ont_011",
+        help="""Base model name. Use the name of the model without any suffix.\n
+        For model-type CRF, _w_CRF will be added to the base model name"""),
     model_type: Annotated[
         str, typer.Option(
             help="""
@@ -627,8 +633,8 @@ def annotate_reads(
 
         pass_num = 1
 
-        workers = [mp.Process(target=post_process_worker, 
-                              args=(task_queue, count, 
+        workers = [mp.Process(target=post_process_worker,
+                              args=(task_queue, count,
                                     header_track, result_queue)) for _ in range(num_workers)]
 
         for worker in workers:
