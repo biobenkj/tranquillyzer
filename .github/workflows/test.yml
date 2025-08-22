@@ -31,7 +31,7 @@ jobs:
           pip install "tensorflow[and-cuda]==2.15" --extra-index-url https://pypi.nvidia.com
           pip install tensorflow-addons
           pip install -e .
-          pip install pytest pytest-order
+          pip install pytest pytest-order pytest-cov
 
       - name: Download model and reference
         shell: bash -l {0}
