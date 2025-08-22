@@ -45,9 +45,11 @@ cd tranquillyzer
 ### 2. <ins>Add Model Files</ins>
 
 Before proceeding with the installation, download the model files from this [link](https://www.dropbox.com/scl/fo/3lms8n97bnufzqa4ausv9/AGkO3EVrL1ZgctwEwTK1mEA?rlkey=47m69a6smwsisdznbwu3jvjpu&st=253al7s3&dl=0) and manually place the required model files inside the models/ directory:
+
 For REG model, the following files are required:
 * <model_name>.h5
 * <model_name>_lbl_bin.pkl
+
 Whereas for CRF model, the following files are required:
 * <model_name>_w_CRF.h5
 * <model_name>_w_CRF_lbl_bin.pkl
@@ -200,8 +202,9 @@ Annotated reads can be inspected independently of the `annotate-reads` processâ€
 Example usage:
 
 ```console
-tranquillyzer visualize MODEL_NAME /path/to/OUTPUT/directory \
-    --output-file OUTPUT_FILE_NAME --model-type CRF \
+tranquillyzer visualize /path/to/OUTPUT/directory \
+    --output-file OUTPUT_FILE_NAME \
+    --model-name MODEL_NAME --model-type CRF \
     --read-names READ_NAME_1,READ_NAME_2,READ_NAME3
 ```
 
