@@ -46,9 +46,20 @@ jobs:
         shell: bash -l {0}
         run: |
           pytest --maxfail=1 -q \
-                 --cov=tranquillyzer \
+                 --cov=. \
                  --cov-report=term-missing \
                  --cov-report=xml:coverage.xml
+
+      - name: Combine coverage (explicit)
+        shell: bash -l {0}
+        run: |
+          python - <<'PY'
+          import coverage
+          cov = coverage.Coverage(data_file=".coverage")
+          cov.load()
+          cov.combine()
+          cov.xml_report(outfile="coverage.xml")
+          PY
 
       - name: Upload coverage to Codecov
         if: always()

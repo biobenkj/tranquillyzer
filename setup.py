@@ -4,7 +4,7 @@ setup(
     name='tranquillyzer',
     version='0.1.0',
     packages=['.', 'scripts', 'utils'],
-    py_modules=['main'], 
+    py_modules=['main'],
     include_package_data=True,
     package_data={
         '': ['models/*.h5', 'utils/*.tsv'],
