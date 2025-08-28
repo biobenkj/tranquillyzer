@@ -77,7 +77,9 @@ def annotate_new_data_parallel(new_encoded_data, model):
     return predictions
 
 def annotate_new_data(new_encoded_data, model):
-    X_new_padded = pad_sequences(new_encoded_data, padding='post', dtype='int8')
+    X_new_padded = pad_sequences(new_encoded_data,
+                                 padding='post',
+                                 dtype='int8')
     predictions = model.predict(X_new_padded)
     return predictions
 
@@ -107,11 +109,13 @@ def estimate_average_read_length_from_bin(bin_name):
     upper_bound = int(bounds[1])
     return (lower_bound + upper_bound) / 2
 
-def model_predictions(parquet_file, chunk_start, chunk_size, model_path, model_path_w_CRF, model_type, num_labels):
-    
+def model_predictions(parquet_file, chunk_start, chunk_size,
+                      model_path, model_path_w_CRF, model_type,
+                      num_labels):
+
     total_rows = calculate_total_rows(parquet_file)
     bin_name = os.path.basename(parquet_file).replace(".parquet", "")
-    
+
     # Estimate the average read length from the bin name and adjust chunk size
     estimated_avg_length = estimate_average_read_length_from_bin(bin_name)
     dynamic_chunk_size = int(chunk_size * (500 / estimated_avg_length))  # Scale chunk size dynamically
@@ -160,7 +164,7 @@ def model_predictions(parquet_file, chunk_start, chunk_size, model_path, model_p
             dummy_input = tf.zeros((1, 512), dtype=tf.int32) 
             _ = model(dummy_input)
             model.load_weights(model_path_w_CRF)
-    
+
         else:
             strategy = tf.distribute.MirroredStrategy()  
             with strategy.scope():
@@ -169,7 +173,7 @@ def model_predictions(parquet_file, chunk_start, chunk_size, model_path, model_p
     # Iterate over chunks within the Parquet file
     for chunk_idx in range(chunk_start, num_chunks + 1):
         print(f"Processing {bin_name}: chunk {chunk_idx}")
-        
+
         # Read the current chunk of rows from the Parquet file
         df_chunk = scan_df.slice((chunk_idx - 1) * dynamic_chunk_size, dynamic_chunk_size).collect()
         read_names = df_chunk["ReadName"].to_list()
@@ -209,23 +213,22 @@ def model_predictions(parquet_file, chunk_start, chunk_size, model_path, model_p
                     learning_rate=params["learning_rate"],
                     crf_layer=True  # Force CRF for this model
                     )
-                dummy_input = tf.zeros((1, 512), dtype=tf.int32) 
+                dummy_input = tf.zeros((1, 512), dtype=tf.int32)
                 _ = model(dummy_input)
                 model.load_weights(model_path_w_CRF)
             else:
                 model = load_model(model_path)
-                
+
         logger.info("Encoding and padding sequences")
         encoded_data = preprocess_sequences(reads)
         logger.info("Encoding and padding sequences finished")
 
-        logger.info(f"Inferring labels")
-        
+        logger.info("Inferring labels")
+
         chunk_predictions = annotate_new_data_parallel(encoded_data, model) if len(reads) >= 100 else annotate_new_data(encoded_data, model)
 
         del df_chunk, encoded_data
         gc.collect()
-        logger.info(f"labels inferred")
+        logger.info("labels inferred")
 
-        yield parquet_file, chunk_idx, chunk_predictions, read_names, reads, read_lengths
-        
+        yield parquet_file, chunk_idx, chunk_predictions, read_names, reads, read_lengths 

@@ -11,7 +11,7 @@ THREADS = 2
 OUT_DIR.mkdir(exist_ok=True, parents=True)
 
 COVRC = str(Path(".coveragerc").resolve())
-COVDATA = str(Path(".coverage").resolve())  # single shared data file
+COVDATA = str(Path(".coverage").resolve())
 
 
 def run_cmd(cmd, timeout=900):
@@ -56,6 +56,22 @@ def test_readlengthdist():
 
 
 @pytest.mark.order(3)
+def test_visualize():
+    run_cmd([
+        "tranquillyzer",
+        "visualize",
+        OUT_DIR,
+        "--output-file",
+        "test_visualization",
+        "--model-type", "CRF",
+        "--num-reads",
+        "10",
+        "--threads",
+        THREADS
+    ])
+
+
+@pytest.mark.order(4)
 def test_annotate_reads():
     run_cmd([
         "tranquillyzer",
@@ -68,7 +84,7 @@ def test_annotate_reads():
     ])
 
 
-@pytest.mark.order(4)
+@pytest.mark.order(5)
 def test_align():
     run_cmd([
         "tranquillyzer",
@@ -81,7 +97,7 @@ def test_align():
     ])
 
 
-@pytest.mark.order(5)
+@pytest.mark.order(6)
 def test_dedup():
     run_cmd([
         "tranquillyzer",

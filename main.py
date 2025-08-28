@@ -88,8 +88,7 @@ def preprocess(fasta_dir: str, output_dir: str,
                    "Base chunk size, dynamically adjusts based on read length"
                    )),
                threads: int = typer.Option(12, help=(
-                   "Number of CPU threads for barcode correction "
-                   "and demultiplexing"
+                   "Number of CPU threads"
                    ))):
 
     os.system("mkdir -p " + output_dir + "/full_length_pp_fa")
@@ -195,7 +194,9 @@ def visualize(output_dir: str,
               ),
               read_names: str = typer.Option(
                   None,
-                  help="Comma-separated list of read names to visualize")):
+                  help="Comma-separated list of read names to visualize"),
+              threads: int = typer.Option(2, help=(
+                   "Number of CPU threads"))):
 
     start = time.time()
 
@@ -292,7 +293,7 @@ def visualize(output_dir: str,
             parquet_file = load_read_index(index_file_path, read_name)
 
             if parquet_file:
-                parquet_path = os.path.join(folder_path, parquet_file)
+                parquet_path = os.path.abspath(parquet_file)
 
                 try:
                     # Load the appropriate Parquet file and retrieve the read
@@ -322,7 +323,7 @@ def visualize(output_dir: str,
             parquet_file = load_read_index(index_file_path, read_name)
 
             if parquet_file:
-                parquet_path = os.path.join(folder_path, parquet_file)
+                parquet_path = os.path.abspath(parquet_file)
 
                 try:
                     df = pl.read_parquet(parquet_path).filter(pl.col("ReadName") == read_name)
@@ -345,12 +346,12 @@ def visualize(output_dir: str,
     annotated_reads = extract_annotated_full_length_seqs(
             selected_reads, predictions, model_path_w_CRF,
             selected_read_lengths, label_binarizer, seq_order,
-            barcodes, n_jobs=1
+            barcodes, n_jobs=threads,
         )
     save_plots_to_pdf(selected_reads, annotated_reads, selected_read_names,
                       pdf_filename, colors, chars_per_line=150)
 
-    usage = resource.getrusage(resource.RUSAGE_CHILDREN) 
+    usage = resource.getrusage(resource.RUSAGE_CHILDREN)
     max_rss_mb = usage.ru_maxrss / 1024 if os.uname().sysname == "Linux" else usage.ru_maxrss  # Linux gives KB
     logger.info(f"Peak memory usage during alignment: {max_rss_mb:.2f} MB")
     logger.info(f"Elapsed time: {time.time() - start:.2f} seconds")
@@ -451,7 +452,7 @@ def annotate_reads(
         """Worker function for processing reads and returning results."""
         while True:
             try:
-                item = task_queue.get(timeout=10)  
+                item = task_queue.get(timeout=10)
                 if item is None:
                     break
 
@@ -803,9 +804,11 @@ def dedup(
 ):
 
     start = time.time()
-    input_bam = os.path.join(input_dir,"aligned_files/demuxed_aligned.bam")
+    input_bam = os.path.join(input_dir, "aligned_files/demuxed_aligned.bam")
     out_bam = os.path.join(input_dir, "aligned_files/demuxed_aligned_dup_marked.bam")
-    deduplication_parallel(input_bam, out_bam, lv_threshold, per_cell, threads, stranded)
+    deduplication_parallel(input_bam, out_bam,
+                           lv_threshold, per_cell,
+                           threads, stranded)
 
     usage = resource.getrusage(resource.RUSAGE_CHILDREN) 
     max_rss_mb = usage.ru_maxrss / 1024 if os.uname().sysname == "Linux" else usage.ru_maxrss  # Linux gives KB

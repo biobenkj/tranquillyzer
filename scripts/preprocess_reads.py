@@ -115,7 +115,7 @@ def parallel_preprocess_data(file_list, output_dir, batch_size, num_workers=4):
 def convert_tsv_to_parquet(tsv_dir, row_group_size=1000000):
     logger.info("Converting TSV files to Parquet files...")
     os.makedirs(tsv_dir, exist_ok=True)
-    
+
     # Find all TSV files in the directory
     tsv_files = glob.glob(os.path.join(tsv_dir, "*.tsv"))
     read_index = {}
