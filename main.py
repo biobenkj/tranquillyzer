@@ -12,9 +12,12 @@ import logging
 import itertools
 import warnings
 import subprocess
+import numpy as np
 import polars as pl
 import pandas as pd
 from Bio import SeqIO
+from Bio.Seq import Seq
+from Bio.SeqRecord import SeqRecord
 import multiprocessing as mp
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
@@ -825,8 +828,8 @@ def simulate_data(model_name: str,
                   output_dir: str,
                   num_reads: int = typer.Option(50000, help="number of reads to simulate"),
                   mismatch_rate: float = typer.Option(0.05, help="mismatch rate"),
-                  insertion_rate: float = typer.Option(0.05, help="insertion rate"), 
-                  deletion_rate: float = typer.Option(0.0612981959469103, help="deletion rate"),
+                  insertion_rate: float = typer.Option(0.05, help="insertion rate"),
+                  deletion_rate: float = typer.Option(0.06, help="deletion rate"),
                   min_cDNA: int = typer.Option(100, help="minimum cDNA length"),
                   max_cDNA: int = typer.Option(500, help="maximum cDNA length"),
                   polyT_error_rate: float = typer.Option(0.02, help=(
@@ -837,13 +840,13 @@ def simulate_data(model_name: str,
                       "maximum number of allowed "
                       "insertions after a base"
                       )),
-                  threads: int = typer.Option(2, help="number of CPU threads"), 
+                  threads: int = typer.Option(2, help="number of CPU threads"),
                   rc: bool = typer.Option(True, help=(
                       "whether to include reverse complements of the reads in "
                       "the training data.\nFinal dataset "
                       "will contain twice the number of user-specified reads"
                       )),
-                  transcriptome: str = typer.Option(None), help="transcriptome fasta file",
+                  transcriptome: str = typer.Option(None, help="transcriptome fasta file"),
                   invalid_fraction: float = typer.Option(0.3, help="fraction of invalid reads to generate")):
 
     reads = []
@@ -851,7 +854,7 @@ def simulate_data(model_name: str,
 
     length_range = (min_cDNA, max_cDNA)
 
-    base_dir = os.path.dirname(os.path.abspath(__file__)) 
+    base_dir = os.path.dirname(os.path.abspath(__file__))
 
     utils_dir = os.path.join(base_dir, "utils")
     utils_dir = os.path.abspath(utils_dir)
@@ -861,9 +864,23 @@ def simulate_data(model_name: str,
         )
     seq_order_dict = {}
 
-    logger.info("Loading transcriptome fasta file")
-    transcriptome_records = list(SeqIO.parse(transcriptome, "fasta"))
-    logger.info("Transcriptome fasta loaded")
+    if transcriptome:
+        logger.info("Loading transcriptome fasta file")
+        transcriptome_records = list(SeqIO.parse(transcriptome, "fasta"))
+        logger.info("Transcriptome fasta loaded")
+    else:
+        logger.info("No transcriptome provided. Will generate random transcripts...")
+        transcriptome_records = []
+        for i in range(num_reads):
+            length = random.randint(min_cDNA, max_cDNA)
+            seq_str = "".join(np.random.choice(list("ATCG")) for _ in range(length))
+            record = SeqRecord(
+                Seq(seq_str),
+                id=f"random_transcript_{i+1}",
+                description=f"Synthetic transcript {i+1}"
+            )
+            transcriptome_records.append(record)
+        logger.info(f"Generated {len(transcriptome_records)} synthetic transcripts")
 
     for i in range(len(seq_order)):
         seq_order_dict[seq_order[i]] = sequences[i]
@@ -883,8 +900,8 @@ def simulate_data(model_name: str,
                                             training_segment_order,
                                             training_segment_pattern,
                                             length_range, threads, rc,
-                                            invalid_fraction,
-                                            transcriptome_records)
+                                            transcriptome_records,
+                                            invalid_fraction)
     logger.info("Finished generating reads")
 
     os.makedirs(f'{output_dir}/simulated_data', exist_ok=True)
@@ -906,8 +923,8 @@ def train_model(model_name: str,
                 output_dir: str,
                 num_val_reads: int = typer.Option(10, help="number of reads to simulate"),
                 mismatch_rate: float = typer.Option(0.05, help="mismatch rate"),
-                insertion_rate: float = typer.Option(0.05, help="insertion rate"), 
-                deletion_rate: float = typer.Option(0.0612981959469103, help="deletion rate"),
+                insertion_rate: float = typer.Option(0.05, help="insertion rate"),
+                deletion_rate: float = typer.Option(0.06, help="deletion rate"),
                 min_cDNA: int = typer.Option(100, help="minimum cDNA length"),
                 max_cDNA: int = typer.Option(500, help="maximum cDNA length"),
                 polyT_error_rate: float = typer.Option(0.02, help="error rate within polyT or polyA segments"),
@@ -1085,7 +1102,7 @@ def train_model(model_name: str,
                 )
 
             history = model.fit(
-                train_gen, validation_data=val_gen, 
+                train_gen, validation_data=val_gen,
                 epochs=epochs, callbacks=[early_stopping, reduce_lr]
                 )
             model.save_weights(f"{output_dir}/{model_name}_{idx}/{model_name}_{idx}.h5")

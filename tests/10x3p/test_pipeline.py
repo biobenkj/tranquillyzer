@@ -4,8 +4,10 @@ import pytest
 
 RAW_INPUT_DIR = Path("tests/10x3p/data")
 OUT_DIR = Path("tests/10x3p")
+SIM_DIR = Path("tests/10x3p")
 BARCODES = Path("tests/10x3p/barcodes.tsv")
 REF_FASTA = Path("tests/references/hg38_gencode_chr21.fa")
+transcriptome = Path("tests/references/")
 THREADS = 2
 
 OUT_DIR.mkdir(exist_ok=True, parents=True)
@@ -106,4 +108,18 @@ def test_dedup():
         "--lv-threshold", 1,
         "--threads", THREADS,
         "--per-cell",
+    ])
+
+
+@pytest.mark.order(7)
+def test_simulate_data():
+    run_cmd([
+        "tranquillyzer",
+        "simulate-data",
+        "10x3p_sc_ont",
+        SIM_DIR,
+        "--num-reads",
+        1000,
+        "--threads",
+        THREADS,
     ])
