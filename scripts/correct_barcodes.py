@@ -141,6 +141,7 @@ def process_row(row, barcode_columns, whitelist_dict, whitelist_df, threshold, o
     )
     return result, local_match_counts, local_cell_counts, batch_reads
 
+
 def bc_n_demultiplex(chunk, barcode_columns, whitelist_dict, whitelist_df, threshold, output_dir, 
                      demuxed_fasta, demuxed_fasta_lock, ambiguous_fasta, ambiguous_fasta_lock, num_cores):
     args = [(row, barcode_columns, whitelist_dict, whitelist_df, threshold, output_dir) for _, row in chunk.iterrows()]
@@ -149,7 +150,8 @@ def bc_n_demultiplex(chunk, barcode_columns, whitelist_dict, whitelist_df, thres
 
     if num_cores > 1:
         with Pool(num_cores) as pool:
-            results = list(tqdm(pool.starmap(process_row, args), total=len(chunk), desc="Processing rows"))
+            results = list(tqdm(pool.starmap(process_row, args),
+                                total=len(chunk), desc="Processing rows"))
 
     elif num_cores == 1:
          # Loop through each row sequentially instead of using multiprocessing
@@ -169,7 +171,9 @@ def bc_n_demultiplex(chunk, barcode_columns, whitelist_dict, whitelist_df, thres
         for cell_id, reads in res[3].items():
             batch_reads[cell_id].extend(reads)
 
-    write_reads_to_fasta(batch_reads, demuxed_fasta, demuxed_fasta_lock, ambiguous_fasta, ambiguous_fasta_lock)
+    write_reads_to_fasta(batch_reads, demuxed_fasta, 
+                         demuxed_fasta_lock, ambiguous_fasta, 
+                         ambiguous_fasta_lock)
 
     match_type_counts = defaultdict(int)
     cell_id_counts = defaultdict(int)
@@ -186,9 +190,11 @@ def bc_n_demultiplex(chunk, barcode_columns, whitelist_dict, whitelist_df, thres
 
     return corrected_df, match_type_counts, cell_id_counts
 
-# Function to generate side-by-side bar plots for each barcode type and save to a single PDF
-def generate_barcodes_stats_pdf(cumulative_barcodes_stats, barcode_columns, pdf_filename="barcode_plots.pdf"):
-    
+
+def generate_barcodes_stats_pdf(cumulative_barcodes_stats,
+                                barcode_columns,
+                                pdf_filename="barcode_plots.pdf"):
+
     with PdfPages(pdf_filename) as pdf:
         for barcode_column in barcode_columns:
             count_data = pd.Series(cumulative_barcodes_stats[barcode_column]['count_data']).sort_index()

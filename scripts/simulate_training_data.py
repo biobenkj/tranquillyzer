@@ -230,6 +230,7 @@ def generate_training_reads(num_reads, mismatch_rate,
     with Pool(processes=num_processes) as pool:
         complete_results = pool.map(simulate_dynamic_batch_complete_wrapper,
                                     [args_complete])
+        pool.close()
 
     reads, labels = [], []
     for local_reads, local_labels in complete_results:

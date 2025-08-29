@@ -8,7 +8,7 @@ SIM_DIR = Path("tests/10x3p")
 BARCODES = Path("tests/10x3p/barcodes.tsv")
 REF_FASTA = Path("tests/references/hg38_gencode_chr21.fa")
 transcriptome = Path("tests/references/")
-THREADS = 2
+THREADS = 1
 
 OUT_DIR.mkdir(exist_ok=True, parents=True)
 

@@ -1,7 +1,8 @@
 import os
 
+
 def trained_models():
-    base_dir = os.path.dirname(os.path.abspath(__file__)) 
+    base_dir = os.path.dirname(os.path.abspath(__file__))
     models_dir = os.path.join(base_dir, "..", "models")   
     models_dir = os.path.abspath(models_dir)
 
@@ -25,6 +26,7 @@ def trained_models():
 
     except Exception as e:
         print(f"An error occurred: {e}")
+
 
 def seq_orders(file_path, model):
     try:
@@ -70,7 +72,6 @@ def seq_orders(file_path, model):
     except Exception as e:
         print(f"An error occurred: {e}")
 
-import os
 
 def training_seq_orders(file_path, model):
     try:

@@ -212,6 +212,8 @@ def extract_annotated_full_length_seqs(new_data, predictions,
     elif n_jobs > 1:
         with mp.Pool(processes=n_jobs) as pool:
             annotated_data = pool.starmap(process_full_len_reads, [(d, barcodes, label_binarizer, model_path_w_CRF) for d in data])
+            pool.close()
+
     del data
     gc.collect()
     tf.keras.backend.clear_session()
