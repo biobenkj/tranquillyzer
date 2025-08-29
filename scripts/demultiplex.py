@@ -6,13 +6,14 @@ import matplotlib.pyplot as plt
 from collections import defaultdict
 from matplotlib.backends.backend_pdf import PdfPages
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO,
+                    format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+
 def assign_cell_id(row, whitelist_df, barcode_columns):
-    # Check if only one barcode type is provided
     if len(barcode_columns) == 1:
-        barcode_type = barcode_columns[0]  # e.g., 'i7', 'i5', or 'CBC'
+        barcode_type = barcode_columns[0]
         corrected_sequences = row[f"corrected_{barcode_type}"].split(',')
 
         # Match against the whitelist
@@ -91,21 +92,24 @@ def assign_cell_id(row, whitelist_df, barcode_columns):
             match_type_counter['Ambiguous'] += 1
             return "ambiguous", match_type_counter, cell_id_counter  # Multiple or no matches
 
-def generate_demux_stats_pdf(pdf_output_file, match_tsv_file, cell_tsv_file, match_type_counter, cell_id_counter):
+
+def generate_demux_stats_pdf(pdf_output_file, match_tsv_file,
+                             cell_tsv_file, match_type_counter,
+                             cell_id_counter):
     with PdfPages(pdf_output_file) as pdf:
-        
+
         # Save match statistics to TSV
         match_df = pd.DataFrame(match_type_counter.items(), columns=["Match_Type", "Read_Count"])
         match_df.to_csv(match_tsv_file, sep="\t", index=False)
 
         logger.info("Converted match_type_counter to tsv file")
-        
+
         # Save Cell ID and Read Counts to TSV
         if cell_id_counter:
             cell_id_data = {int(k): v for k, v in cell_id_counter.items() if k != "ambiguous"}
             cell_df = pd.DataFrame(cell_id_data.items(), columns=["Cell_ID", "Read_Count"])
             cell_df.to_csv(cell_tsv_file, sep="\t", index=False)
-        
+
         logger.info("Converted cell_id_counter to tsv file")
 
         # Match Type Bar Plot
@@ -127,7 +131,7 @@ def generate_demux_stats_pdf(pdf_output_file, match_tsv_file, cell_tsv_file, mat
             plt.close()
         else:
             print("No match types to plot.")
-        
+
         logger.info("Plotted match type counts")
 
         # CDF Plot for Reads Per Cell
@@ -150,5 +154,3 @@ def generate_demux_stats_pdf(pdf_output_file, match_tsv_file, cell_tsv_file, mat
             plt.close()
 
         logger.info("Plotted CDF")
-
-       

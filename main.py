@@ -12,9 +12,12 @@ import logging
 import itertools
 import warnings
 import subprocess
+import numpy as np
 import polars as pl
 import pandas as pd
 from Bio import SeqIO
+from Bio.Seq import Seq
+from Bio.SeqRecord import SeqRecord
 import multiprocessing as mp
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
@@ -88,8 +91,7 @@ def preprocess(fasta_dir: str, output_dir: str,
                    "Base chunk size, dynamically adjusts based on read length"
                    )),
                threads: int = typer.Option(12, help=(
-                   "Number of CPU threads for barcode correction "
-                   "and demultiplexing"
+                   "Number of CPU threads"
                    ))):
 
     os.system("mkdir -p " + output_dir + "/full_length_pp_fa")
@@ -195,7 +197,9 @@ def visualize(output_dir: str,
               ),
               read_names: str = typer.Option(
                   None,
-                  help="Comma-separated list of read names to visualize")):
+                  help="Comma-separated list of read names to visualize"),
+              threads: int = typer.Option(2, help=(
+                   "Number of CPU threads"))):
 
     start = time.time()
 
@@ -292,7 +296,7 @@ def visualize(output_dir: str,
             parquet_file = load_read_index(index_file_path, read_name)
 
             if parquet_file:
-                parquet_path = os.path.join(folder_path, parquet_file)
+                parquet_path = os.path.abspath(parquet_file)
 
                 try:
                     # Load the appropriate Parquet file and retrieve the read
@@ -322,7 +326,7 @@ def visualize(output_dir: str,
             parquet_file = load_read_index(index_file_path, read_name)
 
             if parquet_file:
-                parquet_path = os.path.join(folder_path, parquet_file)
+                parquet_path = os.path.abspath(parquet_file)
 
                 try:
                     df = pl.read_parquet(parquet_path).filter(pl.col("ReadName") == read_name)
@@ -345,12 +349,12 @@ def visualize(output_dir: str,
     annotated_reads = extract_annotated_full_length_seqs(
             selected_reads, predictions, model_path_w_CRF,
             selected_read_lengths, label_binarizer, seq_order,
-            barcodes, n_jobs=1
+            barcodes, n_jobs=threads,
         )
     save_plots_to_pdf(selected_reads, annotated_reads, selected_read_names,
                       pdf_filename, colors, chars_per_line=150)
 
-    usage = resource.getrusage(resource.RUSAGE_CHILDREN) 
+    usage = resource.getrusage(resource.RUSAGE_CHILDREN)
     max_rss_mb = usage.ru_maxrss / 1024 if os.uname().sysname == "Linux" else usage.ru_maxrss  # Linux gives KB
     logger.info(f"Peak memory usage during alignment: {max_rss_mb:.2f} MB")
     logger.info(f"Elapsed time: {time.time() - start:.2f} seconds")
@@ -451,7 +455,7 @@ def annotate_reads(
         """Worker function for processing reads and returning results."""
         while True:
             try:
-                item = task_queue.get(timeout=10)  
+                item = task_queue.get(timeout=10)
                 if item is None:
                     break
 
@@ -803,9 +807,11 @@ def dedup(
 ):
 
     start = time.time()
-    input_bam = os.path.join(input_dir,"aligned_files/demuxed_aligned.bam")
+    input_bam = os.path.join(input_dir, "aligned_files/demuxed_aligned.bam")
     out_bam = os.path.join(input_dir, "aligned_files/demuxed_aligned_dup_marked.bam")
-    deduplication_parallel(input_bam, out_bam, lv_threshold, per_cell, threads, stranded)
+    deduplication_parallel(input_bam, out_bam,
+                           lv_threshold, per_cell,
+                           threads, stranded)
 
     usage = resource.getrusage(resource.RUSAGE_CHILDREN) 
     max_rss_mb = usage.ru_maxrss / 1024 if os.uname().sysname == "Linux" else usage.ru_maxrss  # Linux gives KB
@@ -822,8 +828,8 @@ def simulate_data(model_name: str,
                   output_dir: str,
                   num_reads: int = typer.Option(50000, help="number of reads to simulate"),
                   mismatch_rate: float = typer.Option(0.05, help="mismatch rate"),
-                  insertion_rate: float = typer.Option(0.05, help="insertion rate"), 
-                  deletion_rate: float = typer.Option(0.0612981959469103, help="deletion rate"),
+                  insertion_rate: float = typer.Option(0.05, help="insertion rate"),
+                  deletion_rate: float = typer.Option(0.06, help="deletion rate"),
                   min_cDNA: int = typer.Option(100, help="minimum cDNA length"),
                   max_cDNA: int = typer.Option(500, help="maximum cDNA length"),
                   polyT_error_rate: float = typer.Option(0.02, help=(
@@ -834,13 +840,13 @@ def simulate_data(model_name: str,
                       "maximum number of allowed "
                       "insertions after a base"
                       )),
-                  threads: int = typer.Option(2, help="number of CPU threads"), 
+                  threads: int = typer.Option(2, help="number of CPU threads"),
                   rc: bool = typer.Option(True, help=(
                       "whether to include reverse complements of the reads in "
                       "the training data.\nFinal dataset "
                       "will contain twice the number of user-specified reads"
                       )),
-                  transcriptome: str = typer.Option(None), help="transcriptome fasta file",
+                  transcriptome: str = typer.Option(None, help="transcriptome fasta file"),
                   invalid_fraction: float = typer.Option(0.3, help="fraction of invalid reads to generate")):
 
     reads = []
@@ -848,7 +854,7 @@ def simulate_data(model_name: str,
 
     length_range = (min_cDNA, max_cDNA)
 
-    base_dir = os.path.dirname(os.path.abspath(__file__)) 
+    base_dir = os.path.dirname(os.path.abspath(__file__))
 
     utils_dir = os.path.join(base_dir, "utils")
     utils_dir = os.path.abspath(utils_dir)
@@ -858,9 +864,23 @@ def simulate_data(model_name: str,
         )
     seq_order_dict = {}
 
-    logger.info("Loading transcriptome fasta file")
-    transcriptome_records = list(SeqIO.parse(transcriptome, "fasta"))
-    logger.info("Transcriptome fasta loaded")
+    if transcriptome:
+        logger.info("Loading transcriptome fasta file")
+        transcriptome_records = list(SeqIO.parse(transcriptome, "fasta"))
+        logger.info("Transcriptome fasta loaded")
+    else:
+        logger.info("No transcriptome provided. Will generate random transcripts...")
+        transcriptome_records = []
+        for i in range(num_reads):
+            length = random.randint(min_cDNA, max_cDNA)
+            seq_str = "".join(np.random.choice(list("ATCG")) for _ in range(length))
+            record = SeqRecord(
+                Seq(seq_str),
+                id=f"random_transcript_{i+1}",
+                description=f"Synthetic transcript {i+1}"
+            )
+            transcriptome_records.append(record)
+        logger.info(f"Generated {len(transcriptome_records)} synthetic transcripts")
 
     for i in range(len(seq_order)):
         seq_order_dict[seq_order[i]] = sequences[i]
@@ -880,8 +900,8 @@ def simulate_data(model_name: str,
                                             training_segment_order,
                                             training_segment_pattern,
                                             length_range, threads, rc,
-                                            invalid_fraction,
-                                            transcriptome_records)
+                                            transcriptome_records,
+                                            invalid_fraction)
     logger.info("Finished generating reads")
 
     os.makedirs(f'{output_dir}/simulated_data', exist_ok=True)
@@ -903,8 +923,8 @@ def train_model(model_name: str,
                 output_dir: str,
                 num_val_reads: int = typer.Option(10, help="number of reads to simulate"),
                 mismatch_rate: float = typer.Option(0.05, help="mismatch rate"),
-                insertion_rate: float = typer.Option(0.05, help="insertion rate"), 
-                deletion_rate: float = typer.Option(0.0612981959469103, help="deletion rate"),
+                insertion_rate: float = typer.Option(0.05, help="insertion rate"),
+                deletion_rate: float = typer.Option(0.06, help="deletion rate"),
                 min_cDNA: int = typer.Option(100, help="minimum cDNA length"),
                 max_cDNA: int = typer.Option(500, help="maximum cDNA length"),
                 polyT_error_rate: float = typer.Option(0.02, help="error rate within polyT or polyA segments"),
@@ -1082,7 +1102,7 @@ def train_model(model_name: str,
                 )
 
             history = model.fit(
-                train_gen, validation_data=val_gen, 
+                train_gen, validation_data=val_gen,
                 epochs=epochs, callbacks=[early_stopping, reduce_lr]
                 )
             model.save_weights(f"{output_dir}/{model_name}_{idx}/{model_name}_{idx}.h5")

@@ -31,7 +31,7 @@ jobs:
           pip install "tensorflow[and-cuda]==2.15" --extra-index-url https://pypi.nvidia.com
           pip install tensorflow-addons
           pip install -e .
-          pip install pytest pytest-order
+          pip install pytest pytest-order pytest-cov
 
       - name: Download model and reference
         shell: bash -l {0}
@@ -42,6 +42,29 @@ jobs:
          curl -L "https://www.dropbox.com/scl/fi/313vfpp5usgknfi9o375n/10x3p_sc_ont_011_w_CRF_lbl_bin.pkl?rlkey=ofc6drcra7rs1js0t71psavu0&dl=1" -o models/10x3p_sc_ont_011_w_CRF_lbl_bin.pkl
          curl -L "https://www.dropbox.com/scl/fi/9203pc2gz45u419kze446/hg38_gencode_chr21.fa?rlkey=k1co80pso7zsvb8oiqqc1o1dy&st=e0e92h5h&dl=1" -o tests/references/hg38_gencode_chr21.fa
 
-      - name: Run Pytest
+      - name: Run Pytest with coverage
         shell: bash -l {0}
-        run: pytest
+        run: |
+          pytest --maxfail=1 -q \
+                 --cov=. \
+                 --cov-report=term-missing \
+                 --cov-report=xml:coverage.xml
+
+      - name: Combine coverage (explicit)
+        shell: bash -l {0}
+        run: |
+          python - <<'PY'
+          import coverage
+          cov = coverage.Coverage(data_file=".coverage")
+          cov.load()
+          cov.combine()
+          cov.xml_report(outfile="coverage.xml")
+          PY
+
+      - name: Upload coverage to Codecov
+        if: always()
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage.xml
+          fail_ci_if_error: true
+          token: ${{ secrets.CODECOV_TOKEN }}
