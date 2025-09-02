@@ -217,24 +217,4 @@ tranquillyzer visualize /path/to/OUTPUT/directory \
     --num-reads 10 --threads 2
 ```
 
-### <ins>Read visualization</ins>
-
-Annotated reads can be inspected independently of the `annotate-reads` process—either before or after successfully running the `annotate-reads` command—by providing their names to the `visualize` command. The resulting visualization is saved as a .pdf file in the **/path/to/OUTPUT/directory/plots/** folder. If users want specific reads to be visualized, they can specify their names under the --read-names parameter. Otherwise, they can use the --num-reads parameter to visualize a randomly selected subset of reads from the entire dataset.
-
-Example usage:
-
-```console
-tranquillyzer visualize /path/to/OUTPUT/directory \
-    --output-file OUTPUT_FILE_NAME \
-    --model-name MODEL_NAME --model-type CRF \
-    --read-names READ_NAME_1,READ_NAME_2,READ_NAME3 \
-    --threads 2
-```
-```console
-tranquillyzer visualize /path/to/OUTPUT/directory \
-    --output-file OUTPUT_FILE_NAME \
-    --model-name MODEL_NAME --model-type CRF \
-    --num-reads 10 --threads 2
-```
-
 ** More detailed usage instructions coming soon **
