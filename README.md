@@ -1,5 +1,7 @@
 # Tranquillyzer
 
+[![codecov](https://codecov.io/github/AyushSemwal/tranquillyzer/graph/badge.svg?token=QS4IK3UZRN)](https://codecov.io/github/AyushSemwal/tranquillyzer)
+
 **Tranquillyzer** (**TRAN**script **QU**antification **I**n **L**ong reads-ana**LYZER**), is a flexible, architecture-aware deep learning framework for processing long-read single-cell RNA-seq data. It employs a hybrid neural network architecture and a global, context-aware design, and enables precise identification of structural elements. In addition to supporting established single-cell protocols, Tranquillyzer accommodates custom library formats through rapid, one-time model training on user-defined label schemas, typically completed within a few hours on standard GPUs.
 
 For a detailed description of the framework, benchmarking results, and application to real datasets, please refer to the [preprint](https://www.biorxiv.org/content/10.1101/2025.07.25.666829v1).
@@ -205,7 +207,34 @@ Example usage:
 tranquillyzer visualize /path/to/OUTPUT/directory \
     --output-file OUTPUT_FILE_NAME \
     --model-name MODEL_NAME --model-type CRF \
-    --read-names READ_NAME_1,READ_NAME_2,READ_NAME3
+    --read-names READ_NAME_1,READ_NAME_2,READ_NAME3 \
+    --threads 2
+```
+```console
+tranquillyzer visualize /path/to/OUTPUT/directory \
+    --output-file OUTPUT_FILE_NAME \
+    --model-name MODEL_NAME --model-type CRF \
+    --num-reads 10 --threads 2
+```
+
+### <ins>Read visualization</ins>
+
+Annotated reads can be inspected independently of the `annotate-reads` process—either before or after successfully running the `annotate-reads` command—by providing their names to the `visualize` command. The resulting visualization is saved as a .pdf file in the **/path/to/OUTPUT/directory/plots/** folder. If users want specific reads to be visualized, they can specify their names under the --read-names parameter. Otherwise, they can use the --num-reads parameter to visualize a randomly selected subset of reads from the entire dataset.
+
+Example usage:
+
+```console
+tranquillyzer visualize /path/to/OUTPUT/directory \
+    --output-file OUTPUT_FILE_NAME \
+    --model-name MODEL_NAME --model-type CRF \
+    --read-names READ_NAME_1,READ_NAME_2,READ_NAME3 \
+    --threads 2
+```
+```console
+tranquillyzer visualize /path/to/OUTPUT/directory \
+    --output-file OUTPUT_FILE_NAME \
+    --model-name MODEL_NAME --model-type CRF \
+    --num-reads 10 --threads 2
 ```
 
 ** More detailed usage instructions coming soon **
