@@ -4,7 +4,7 @@ import gc
 import csv
 import logging
 import numpy as np
-import pandas as pd 
+import pandas as pd
 import polars as pl
 import seaborn as sns
 import tensorflow as tf
@@ -19,10 +19,12 @@ from scripts.extract_annotated_seqs import extract_annotated_full_length_seqs
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+
 # Function to save the current state (bin_name and chunk) for checkpointing
 def save_checkpoint(checkpoint_file, bin_name, chunk):
     with open(checkpoint_file, "w") as f:
         f.write(f"{bin_name},{chunk}")
+
 
 # Function to load the last checkpoint
 def load_checkpoint(checkpoint_file, start_bin):
@@ -32,28 +34,37 @@ def load_checkpoint(checkpoint_file, start_bin):
         return bin_name, int(chunk)
     return start_bin, 1  # If no checkpoint, start from the first chunk
 
-def process_full_length_reads_in_chunks_and_save(reads, original_read_names, model_type, pass_num, model_path_w_CRF, 
-                                                 predictions, label_binarizer, cumulative_barcodes_stats,
-                                                 actual_lengths, seq_order, add_header, output_dir, 
-                                                 invalid_output_file, invalid_file_lock, 
-                                                 valid_output_file, valid_file_lock, 
-                                                 barcodes, whitelist_df, whitelist_dict, 
-                                                 demuxed_fasta, demuxed_fasta_lock, 
-                                                 ambiguous_fasta, ambiguous_fasta_lock,
+
+def process_full_length_reads_in_chunks_and_save(reads, original_read_names,
+                                                 model_type, pass_num,
+                                                 model_path_w_CRF,
+                                                 predictions, label_binarizer,
+                                                 cumulative_barcodes_stats,
+                                                 actual_lengths, seq_order,
+                                                 add_header, output_dir,
+                                                 invalid_output_file,
+                                                 invalid_file_lock,
+                                                 valid_output_file,
+                                                 valid_file_lock, barcodes,
+                                                 whitelist_df, whitelist_dict,
+                                                 demuxed_fasta,
+                                                 demuxed_fasta_lock,
+                                                 ambiguous_fasta,
+                                                 ambiguous_fasta_lock,
                                                  threshold, bin_name, n_jobs):
-    
+
     reads_in_chunk = len(reads)
-    
+
     logging.info(f"Processing chunk: number of reads = {reads_in_chunk}\n")
 
     # n_jobs = min(n_jobs, reads_in_chunk)
-    n_jobs = min(16, reads_in_chunk)
-    # lengths = actual_lengths 
+    n_jobs_extract = min(16, reads_in_chunk)
+    # lengths = actual_lengths
     chunk_contiguous_annotated_sequences = extract_annotated_full_length_seqs(reads, predictions, model_path_w_CRF,
-                                                                              actual_lengths, label_binarizer, seq_order, 
-                                                                              barcodes, n_jobs)
+                                                                              actual_lengths, label_binarizer, seq_order,
+                                                                              barcodes, n_jobs_extract)
 
-    logging.info(f"Preparing predictions for barcode correction and demultiplexing\n")
+    logging.info("Preparing predictions for barcode correction and demultiplexing\n")
     chunk_df = pd.DataFrame.from_records(
     (
         {
@@ -61,18 +72,18 @@ def process_full_length_reads_in_chunks_and_save(reads, original_read_names, mod
             'read_length': annotated_read['read_length'],
             'read': annotated_read['read'],
             **{
-                f'{label}_Starts': ', '.join(map(str, annotations['Starts'])) 
-                for label, annotations in annotated_read.items() 
+                f'{label}_Starts': ', '.join(map(str, annotations['Starts']))
+                for label, annotations in annotated_read.items()
                 if label not in {"architecture", "reason"} and 'Starts' in annotations
             },
             **{
-                f'{label}_Ends': ', '.join(map(str, annotations['Ends'])) 
+                f'{label}_Ends': ', '.join(map(str, annotations['Ends']))
                 for label, annotations in annotated_read.items() 
                 if label not in {"architecture", "reason"} and 'Ends' in annotations
             },
             **{
-                f'{label}_Sequences': ', '.join(map(str, annotated_read[label]['Sequences'])) 
-                for label in barcodes 
+                f'{label}_Sequences': ', '.join(map(str, annotated_read[label]['Sequences']))
+                for label in barcodes
                 if label in annotated_read and 'Sequences' in annotated_read[label]
             },
             'architecture': annotated_read['architecture'],
@@ -122,8 +133,8 @@ def process_full_length_reads_in_chunks_and_save(reads, original_read_names, mod
             print(f"Saved {len(invalid_reads_df)} invalid reads to {invalid_output_file}")
         # del invalid_reads_df
 
-    logging.info(f"Prepared predictions for barcode correction and demultiplexing\n")
-    
+    logging.info("Prepared predictions for barcode correction and demultiplexing\n")
+
     # Process valid reads for barcodes
     column_mapping = {}
 
@@ -132,14 +143,14 @@ def process_full_length_reads_in_chunks_and_save(reads, original_read_names, mod
 
     # Process barcodes in parallel
     if not valid_reads_df.empty:
-        logging.info(f"Correcting barcode and demuliplexing valid reads")
-        corrected_df, match_type_counts, cell_id_counts = bc_n_demultiplex(valid_reads_df, list(column_mapping.keys()), 
-                                                                           whitelist_dict, whitelist_df, threshold, 
-                                                                           output_dir, demuxed_fasta, demuxed_fasta_lock, 
+        logging.info("Correcting barcode and demuliplexing valid reads")
+        corrected_df, match_type_counts, cell_id_counts = bc_n_demultiplex(valid_reads_df, list(column_mapping.keys()),
+                                                                           whitelist_dict, whitelist_df, threshold,
+                                                                           output_dir, demuxed_fasta, demuxed_fasta_lock,
                                                                            ambiguous_fasta, ambiguous_fasta_lock, n_jobs)
-        logging.info(f"Corrected barcodes and demuliplexed valid reads")
+        logging.info("Corrected barcodes and demuliplexed valid reads")
 
-        logging.info(f"Computing barcode stats")
+        logging.info("Computing barcode stats")
         for barcode in list(column_mapping.keys()):
             count_column = f'corrected_{barcode}_counts_with_min_dist'
             min_dist_column = f'corrected_{barcode}_min_dist'
@@ -157,7 +168,7 @@ def process_full_length_reads_in_chunks_and_save(reads, original_read_names, mod
                 cumulative_barcodes_stats[barcode]['min_dist_data'][key] = (
                     cumulative_barcodes_stats[barcode]['min_dist_data'].get(key, 0) + value
                 )
-        logging.info(f"Computed barcode stats")
+        logging.info("Computed barcode stats")
 
         logging.info(f"Processing and saving {len(corrected_df)} valid reads to {valid_output_file}")
         with valid_file_lock:  # FileLock ensures only one process writes at a time
@@ -166,7 +177,7 @@ def process_full_length_reads_in_chunks_and_save(reads, original_read_names, mod
         logging.info(f"Processed and saved {len(corrected_df)} valid reads to {valid_output_file}")
 
         return match_type_counts, cell_id_counts, cumulative_barcodes_stats
-    
+
     for local_df in ["chunk_df", "corrected_df", "invalid_reads_df", "valid_reads_df"]:
         if local_df:
             del local_df
@@ -176,17 +187,26 @@ def process_full_length_reads_in_chunks_and_save(reads, original_read_names, mod
     tf.keras.backend.clear_session()
     gc.collect()
 
-def post_process_reads(reads, read_names, model_type, pass_num, model_path_w_CRF, predictions, label_binarizer, cumulative_barcodes_stats,
-                       read_lengths, seq_order, add_header, bin_name, output_dir, 
-                       invalid_output_file, invalid_file_lock, valid_output_file, valid_file_lock, barcodes, whitelist_df, whitelist_dict, 
-                       threshold, checkpoint_file, chunk_start, match_type_counter,  cell_id_counter, 
-                       demuxed_fasta, demuxed_fasta_lock, ambiguous_fasta, ambiguous_fasta_lock, njobs):
-    
-    results = process_full_length_reads_in_chunks_and_save(reads, read_names, model_type, pass_num, model_path_w_CRF, predictions, label_binarizer, cumulative_barcodes_stats,
+
+def post_process_reads(reads, read_names, model_type, pass_num,
+                       model_path_w_CRF, predictions, label_binarizer,
+                       cumulative_barcodes_stats, read_lengths,
+                       seq_order, add_header, bin_name, output_dir,
+                       invalid_output_file, invalid_file_lock,
+                       valid_output_file, valid_file_lock, barcodes,
+                       whitelist_df, whitelist_dict, threshold,
+                       checkpoint_file, chunk_start, match_type_counter,
+                       cell_id_counter, demuxed_fasta, demuxed_fasta_lock,
+                       ambiguous_fasta, ambiguous_fasta_lock, njobs):
+
+    results = process_full_length_reads_in_chunks_and_save(reads, read_names,
+                                                           model_type, pass_num,
+                                                           model_path_w_CRF, predictions,
+                                                           label_binarizer, cumulative_barcodes_stats,
                                                            read_lengths, seq_order, add_header, output_dir, invalid_output_file, invalid_file_lock,
-                                                           valid_output_file, valid_file_lock, barcodes, whitelist_df, whitelist_dict, demuxed_fasta, 
+                                                           valid_output_file, valid_file_lock, barcodes, whitelist_df, whitelist_dict, demuxed_fasta,
                                                            demuxed_fasta_lock, ambiguous_fasta, ambiguous_fasta_lock, threshold, bin_name, njobs)
-        
+
     if results is not None:
         match_type_counts, cell_id_counts, cumulative_barcodes_stats = results
 
@@ -194,12 +214,13 @@ def post_process_reads(reads, read_names, model_type, pass_num, model_path_w_CRF
             match_type_counter[key] += value
         for key, value in cell_id_counts.items():
             cell_id_counter[key] += value
-            
+
     save_checkpoint(checkpoint_file, bin_name, chunk_start)
-            
+
     gc.collect()  # Clean up memory after processing each chunk
 
     return cumulative_barcodes_stats, match_type_counter, cell_id_counter
+
 
 def filtering_reason_stats(reason_counter_by_bin, output_dir):
 
@@ -221,7 +242,7 @@ def filtering_reason_stats(reason_counter_by_bin, output_dir):
 
 
 def plot_read_n_cDNA_lengths(output_dir):
-    df = pl.read_parquet(f"{output_dir}/annotations_valid.parquet", 
+    df = pl.read_parquet(f"{output_dir}/annotations_valid.parquet",
                          columns=["read_length", "cDNA_length"])
     read_lengths = []
     cDNA_lengths = []
@@ -239,7 +260,7 @@ def plot_read_n_cDNA_lengths(output_dir):
         # valid read length distribution
         if len(log_read_lengths[log_read_lengths > 0]):
             plt.figure(figsize=(8, 6))
-            plt.hist(log_read_lengths[log_read_lengths > 0], 
+            plt.hist(log_read_lengths[log_read_lengths > 0],
                      bins=100, color='blue', edgecolor='black')
             plt.title('Read Length Distribution (Log Scale)')
             plt.xlabel('Log10(Read Length)')
@@ -259,5 +280,3 @@ def plot_read_n_cDNA_lengths(output_dir):
             plt.tight_layout()
             pdf.savefig()
             plt.close()
-
-
