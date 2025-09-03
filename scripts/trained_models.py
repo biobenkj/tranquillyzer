@@ -8,7 +8,7 @@ def trained_models():
 
     utils_dir = os.path.join(base_dir, "..", "utils")
     utils_dir = os.path.abspath(utils_dir)
-    
+
     try:
         # Check if the directory exists
         if not os.path.isdir(models_dir):
@@ -54,12 +54,12 @@ def seq_orders(file_path, model):
                 if (barcodes.startswith("'") and barcodes.endswith("'")) or (barcodes.startswith("\"") and barcodes.endswith("\"")):
                     barcodes = barcodes[1:-1] 
                 barcodes = barcodes.rstrip().split(',')
-                
+
                 UMIs = fields[4]
                 if (UMIs.startswith("'") and UMIs.endswith("'")) or (UMIs.startswith("\"") and UMIs.endswith("\"")):
                     UMIs = UMIs[1:-1] 
                 UMIs = UMIs.rstrip().split(',')
-                
+
                 # The first part is the model name, the rest are sequences
                 if model_name == model:
                     sequence_order = sequence_order
@@ -67,7 +67,7 @@ def seq_orders(file_path, model):
                     barcodes = barcodes
                     UMIs = UMIs
                     break
-        
+
         return sequence_order, sequences, barcodes, UMIs
     except Exception as e:
         print(f"An error occurred: {e}")

@@ -145,7 +145,7 @@ def generate_demux_stats_pdf(pdf_output_file, match_tsv_file,
             plt.xlabel('Reads per Cell')
             plt.ylabel('Cumulative Fraction')
             plt.title('CDF of Reads per Cell')
-            plt.axvline(x=read_counts[int(len(read_counts) * 0.05)], 
+            plt.axvline(x=read_counts[int(len(read_counts) * 0.05)],
                         color='r', linestyle='--', label='Elbow Point')
             plt.legend()
             plt.grid()

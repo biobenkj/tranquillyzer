@@ -15,9 +15,11 @@ from matplotlib.backends.backend_pdf import PdfPages
 
 from scripts.demultiplex import assign_cell_id
 
+
 def reverse_complement(seq):
     complement = {'A': 'T', 'T': 'A', 'C': 'G', 'G': 'C'}
     return ''.join(complement.get(base, base) for base in reversed(seq))
+
 
 # Create ASCII lookup table (0-127 only, avoids excess memory usage)
 DNA_COMPLEMENT = np.zeros(128, dtype=np.uint8)  # Only map printable ASCII values
@@ -27,13 +29,16 @@ DNA_COMPLEMENT[ord('G')] = ord('C')
 DNA_COMPLEMENT[ord('C')] = ord('G')
 DNA_COMPLEMENT[ord('N')] = ord('N')  # Keep 'N' unchanged
 
+
 @njit
 def reverse_complement_numba(seq_ascii):
     rev_comp_arr = DNA_COMPLEMENT[seq_ascii[::-1]]  # Reverse & complement
     return rev_comp_arr
 
+
 def reverse_complement(seq):
-    seq_ascii = np.frombuffer(seq.encode('ascii'), dtype=np.uint8)  # Convert string to ASCII uint8
+    seq_ascii = np.frombuffer(seq.encode('ascii'),
+                              dtype=np.uint8)  # Convert string to ASCII uint8
     rev_comp_ascii = reverse_complement_numba(seq_ascii)  # Call optimized function
     return rev_comp_ascii.tobytes().decode('ascii')  # Convert back to string
 
@@ -43,8 +48,10 @@ def correct_barcode(row, column_name, whitelist, threshold):
     reverse_comp_barcode = reverse_complement(observed_barcode)
 
     # Get distance scores for observed barcode and reverse complement
-    candidates = process.extract(observed_barcode, whitelist, scorer=Levenshtein.distance, limit=5)
-    candidates_rev = process.extract(reverse_comp_barcode, whitelist, scorer=Levenshtein.distance, limit=5)
+    candidates = process.extract(observed_barcode, whitelist,
+                                 scorer=Levenshtein.distance, limit=5)
+    candidates_rev = process.extract(reverse_comp_barcode, whitelist,
+                                     scorer=Levenshtein.distance, limit=5)
 
     # Combine results and find minimum distance
     all_matches = candidates + candidates_rev
@@ -62,7 +69,9 @@ def correct_barcode(row, column_name, whitelist, threshold):
     return observed_barcode, ",".join(closest_barcodes), min_distance, len(closest_barcodes)
 
 
-def write_reads_to_fasta(batch_reads, demuxed_fasta, demuxed_fasta_lock, ambiguous_fasta, ambiguous_fasta_lock):
+def write_reads_to_fasta(batch_reads, demuxed_fasta,
+                         demuxed_fasta_lock, ambiguous_fasta,
+                         ambiguous_fasta_lock):
     for cell_id, reads in batch_reads.items():
         if cell_id == "ambiguous":
             with ambiguous_fasta_lock:
@@ -70,13 +79,16 @@ def write_reads_to_fasta(batch_reads, demuxed_fasta, demuxed_fasta_lock, ambiguo
         else:
             with demuxed_fasta_lock:
                 fasta_file = open(demuxed_fasta, "a")
-        
+
         for header, sequence in reads:
             fasta_file.write(f"{header}\n{sequence}\n")
-        
+
         fasta_file.close()
 
-def process_row(row, barcode_columns, whitelist_dict, whitelist_df, threshold, output_dir):
+
+def process_row(row, barcode_columns,
+                whitelist_dict, whitelist_df,
+                threshold, output_dir):
     result = {
         'ReadName': row['ReadName'],
         'read_length': row['read_length'],
@@ -127,7 +139,9 @@ def process_row(row, barcode_columns, whitelist_dict, whitelist_df, threshold, o
     result['reason'] = row['reason']
     result['orientation'] = row['orientation']
 
-    cell_id, local_match_counts, local_cell_counts = assign_cell_id(result, whitelist_df, barcode_columns)
+    cell_id, local_match_counts, local_cell_counts = assign_cell_id(result,
+                                                                    whitelist_df,
+                                                                    barcode_columns)
     result['cell_id'] = cell_id
 
     corrected_barcode_seqs_str = whitelist_dict["cell_ids"][cell_id] if cell_id != "ambiguous" else "ambiguous"
@@ -142,8 +156,11 @@ def process_row(row, barcode_columns, whitelist_dict, whitelist_df, threshold, o
     return result, local_match_counts, local_cell_counts, batch_reads
 
 
-def bc_n_demultiplex(chunk, barcode_columns, whitelist_dict, whitelist_df, threshold, output_dir, 
-                     demuxed_fasta, demuxed_fasta_lock, ambiguous_fasta, ambiguous_fasta_lock, num_cores):
+def bc_n_demultiplex(chunk, barcode_columns, whitelist_dict,
+                     whitelist_df, threshold, output_dir,
+                     demuxed_fasta, demuxed_fasta_lock,
+                     ambiguous_fasta, ambiguous_fasta_lock,
+                     num_cores):
     args = [(row, barcode_columns, whitelist_dict, whitelist_df, threshold, output_dir) for _, row in chunk.iterrows()]
     batch_reads = defaultdict(list)
     results = []
@@ -154,8 +171,9 @@ def bc_n_demultiplex(chunk, barcode_columns, whitelist_dict, whitelist_df, thres
                                 total=len(chunk), desc="Processing rows"))
 
     elif num_cores == 1:
-         # Loop through each row sequentially instead of using multiprocessing
-        for arg in tqdm(args, total=len(chunk), desc="Processing rows (no parallelism)"):
+        # Loop through each row sequentially instead of using multiprocessing
+        for arg in tqdm(args, total=len(chunk),
+                        desc="Processing rows (no parallelism)"):
             result = process_row(*arg)
             results.append(result)
 
@@ -171,8 +189,8 @@ def bc_n_demultiplex(chunk, barcode_columns, whitelist_dict, whitelist_df, thres
         for cell_id, reads in res[3].items():
             batch_reads[cell_id].extend(reads)
 
-    write_reads_to_fasta(batch_reads, demuxed_fasta, 
-                         demuxed_fasta_lock, ambiguous_fasta, 
+    write_reads_to_fasta(batch_reads, demuxed_fasta,
+                         demuxed_fasta_lock, ambiguous_fasta,
                          ambiguous_fasta_lock)
 
     match_type_counts = defaultdict(int)

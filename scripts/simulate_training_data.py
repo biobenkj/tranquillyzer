@@ -227,10 +227,13 @@ def generate_training_reads(num_reads, mismatch_rate,
         transcriptome_records, invalid_fraction
     )
 
-    with Pool(processes=num_processes) as pool:
-        complete_results = pool.map(simulate_dynamic_batch_complete_wrapper,
-                                    [args_complete])
-        pool.close()
+    if num_processes > 1:
+        with Pool(processes=num_processes) as pool:
+            complete_results = pool.map(simulate_dynamic_batch_complete_wrapper,
+                                        [args_complete])
+            pool.close()
+    else:
+        complete_results = [simulate_dynamic_batch_complete_wrapper(args_complete)]
 
     reads, labels = [], []
     for local_reads, local_labels in complete_results:

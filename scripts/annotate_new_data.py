@@ -31,41 +31,37 @@ gpus = tf.config.experimental.list_physical_devices('GPU')
 for gpu in gpus:
     tf.config.experimental.set_memory_growth(gpu, True)
 
-# def encode_sequence(read):
-#     nucleotide_to_id = {'A': 1, 'C': 2, 'G': 3, 'T': 4, 'N': 5}
-#     return [nucleotide_to_id[n] for n in read]
-
-# def encode_sequences_parallel(sequences, num_workers=64):
-#     """Parallelized encoding of sequences using multiprocessing."""
-#     with mp.Pool(num_workers) as pool:
-#         encoded_sequences = pool.map(encode_sequence, sequences)
-#     return encoded_sequences
-
 tf.config.optimizer.set_jit(True)
+
 
 @njit
 def encode_sequence_numba(read):
-    """Fast Numba-based nucleotide encoding using ASCII lookup."""
+    """nucleotide encoding using ASCII lookup."""
     encoded_seq = np.zeros(len(read), dtype=np.int8)
     for i in range(len(read)):
-        encoded_seq[i] = NUCLEOTIDE_TO_ID[ord(read[i])]  # Faster lookup using ASCII index
+        encoded_seq[i] = NUCLEOTIDE_TO_ID[ord(read[i])]
     return encoded_seq
 
+
 def preprocess_sequences(sequences):
-    """Converts DNA sequences into NumPy integer arrays for Numba processing."""
+    """Converts DNA sequences into NumPy integer arrays."""
     max_len = max(len(seq) for seq in sequences)  # Get max sequence length
-    encoded_array = np.zeros((len(sequences), max_len), dtype=np.int8)  # Pre-allocate array
+    encoded_array = np.zeros((len(sequences), max_len),
+                             dtype=np.int8)  # Pre-allocate array
 
     for i, seq in enumerate(sequences):
-        encoded_array[i, :len(seq)] = encode_sequence_numba(seq)  # Encode each sequence
+        encoded_array[i, :len(seq)] = encode_sequence_numba(seq)
 
     return encoded_array
+
 
 def annotate_new_data_parallel(new_encoded_data, model):
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
     # Pad sequences (though they are already fixed-length)
-    X_new_padded = pad_sequences(new_encoded_data, padding='post', dtype='int8')
+    X_new_padded = pad_sequences(new_encoded_data,
+                                 padding='post',
+                                 dtype='int8')
 
     # Create a dataset for efficient input feeding
     dataset = tf.data.Dataset.from_tensor_slices(X_new_padded)
@@ -76,6 +72,7 @@ def annotate_new_data_parallel(new_encoded_data, model):
     predictions = model.predict(dataset)
     return predictions
 
+
 def annotate_new_data(new_encoded_data, model):
     X_new_padded = pad_sequences(new_encoded_data,
                                  padding='post',
@@ -83,11 +80,28 @@ def annotate_new_data(new_encoded_data, model):
     predictions = model.predict(X_new_padded)
     return predictions
 
+
 # Function to calculate the total number of rows in the Parquet file
 def calculate_total_rows(parquet_file):
     df = pl.scan_parquet(parquet_file)
     total_rows = df.collect().shape[0]
     return total_rows
+
+
+# function to estimate the average read length from the bin name
+def estimate_average_read_length_from_bin(bin_name):
+    bounds = bin_name.replace("bp", "").split("_")
+    lower_bound = int(bounds[0])
+    upper_bound = int(bounds[1])
+    return (lower_bound + upper_bound) / 2
+
+
+# Function to calculate the total number of rows in the Parquet file
+def calculate_total_rows(parquet_file):
+    df = pl.scan_parquet(parquet_file)
+    total_rows = df.collect().shape[0]
+    return total_rows
+
 
 # Modified function to estimate the average read length from the bin name
 def estimate_average_read_length_from_bin(bin_name):
@@ -96,18 +110,6 @@ def estimate_average_read_length_from_bin(bin_name):
     upper_bound = int(bounds[1])
     return (lower_bound + upper_bound) / 2
 
-# Function to calculate the total number of rows in the Parquet file
-def calculate_total_rows(parquet_file):
-    df = pl.scan_parquet(parquet_file)
-    total_rows = df.collect().shape[0]
-    return total_rows
-
-# Modified function to estimate the average read length from the bin name
-def estimate_average_read_length_from_bin(bin_name):
-    bounds = bin_name.replace("bp", "").split("_")
-    lower_bound = int(bounds[0])
-    upper_bound = int(bounds[1])
-    return (lower_bound + upper_bound) / 2
 
 def model_predictions(parquet_file, chunk_start, chunk_size,
                       model_path, model_path_w_CRF, model_type,
@@ -231,4 +233,4 @@ def model_predictions(parquet_file, chunk_start, chunk_size,
         gc.collect()
         logger.info("labels inferred")
 
-        yield parquet_file, chunk_idx, chunk_predictions, read_names, reads, read_lengths 
+        yield parquet_file, chunk_idx, chunk_predictions, read_names, reads, read_lengths

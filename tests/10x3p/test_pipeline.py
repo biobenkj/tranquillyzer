@@ -123,3 +123,11 @@ def test_simulate_data():
         "--threads",
         THREADS,
     ])
+
+
+@pytest.mark.order(8)
+def test_available_models():
+    run_cmd([
+        "tranquillyzer",
+        "availablemodels",
+    ])

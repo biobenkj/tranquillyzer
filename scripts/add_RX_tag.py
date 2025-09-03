@@ -1,19 +1,18 @@
-import pysam
 import multiprocessing
-import os
-import subprocess
+
 
 def parse_header(header):
     """Parses the read header to extract cell barcodes and UMI."""
     parts = header.split("_")  # Read name structure: UUID_combinedBarcodes_UMI
-    
+
     if len(parts) < 3:
         return None, None  # Return None if format is unexpected
-    
+
     combined_cb = parts[1]  # Barcodes are in the second position
     umi = parts[2]  # UMI is in the third position
-    
+
     return combined_cb, umi
+
 
 def add_tags_in_chunk(chunk):
     """Processes a chunk of SAM file to add CB and UMI tags while collecting alignment stats in local memory."""
@@ -25,24 +24,24 @@ def add_tags_in_chunk(chunk):
         "Multi-mapped Reads": 0,
         "Supplementary Alignments": 0
     }
-    
+
     for line in chunk:
         if line.startswith("@"):  # Keep SAM headers unchanged
             processed_lines.append(line)
             continue
-        
+
         fields = line.strip().split("\t")
         read_name = fields[0]
-        
+
         combined_cb, umi = parse_header(read_name)
-        
+
         if combined_cb:
             fields.append(f"CB:Z:{combined_cb}")
         if umi:
             fields.append(f"RX:Z:{umi}")
-        
+
         processed_lines.append("\t".join(fields) + "\n")
-        
+
         # Collect alignment stats in local dictionary
         local_stats["Total Reads"] += 1
         flag = int(fields[1])
@@ -56,8 +55,9 @@ def add_tags_in_chunk(chunk):
                 nh_value = int([x.split(":")[-1] for x in fields if x.startswith("NH:i:")][0])
                 if nh_value > 1:
                     local_stats["Multi-mapped Reads"] += 1
-    
+
     return processed_lines, local_stats
+
 
 def add_tags_parallel(input_sam, output_sam, threads, chunk_size=100000):
     """Parallel processing of SAM file using lazy loading while collecting stats efficiently."""

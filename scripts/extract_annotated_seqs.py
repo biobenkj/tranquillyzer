@@ -3,7 +3,7 @@ import multiprocessing as mp
 import numpy as np
 import tensorflow as tf
 
-################ collapse labels into order ################
+# ======================= collapse labels into order ======================= #
 
 
 def collapse_labels(arr, read_length):
@@ -30,7 +30,7 @@ def collapse_labels(arr, read_length):
 
     return collapsed_array, count_dict, indices_dict
 
-# ############ check if elements are in expected order ##############
+# ============ check if elements are in expected order ============ #
 
 
 def flexible_sliding_match(array, pattern):
@@ -110,7 +110,7 @@ def check_order(collapsed_array, count_dict, expected_order):
     reason = "Unexpected pattern: [" + "_".join(collapsed_array) + "]"
     return False, "", reason
 
-############## process full-length reads ############
+# =================== process full-length reads =================== #
 
 
 def process_full_len_reads(data, barcodes, label_binarizer, model_path_w_CRF):
@@ -131,7 +131,9 @@ def process_full_len_reads(data, barcodes, label_binarizer, model_path_w_CRF):
     decoded_prediction = decoded_prediction[0:read_length]
 
     collapsed_array, count_dict, indices_dict = collapse_labels(decoded_prediction, read_length)
-    order_match, order, reasons = check_order(collapsed_array, count_dict, seq_order)
+    order_match, order, reasons = check_order(collapsed_array,
+                                              count_dict,
+                                              seq_order)
 
     annotations = {element: {'Starts': [], 'Ends': [], 'Sequences': []} for element in seq_order}
     annotations['random_s'] = {'Starts': [], 'Ends': [], 'Sequences': []}
