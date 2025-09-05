@@ -208,13 +208,24 @@ tranquillyzer visualize /path/to/OUTPUT/directory \
     --output-file OUTPUT_FILE_NAME \
     --model-name MODEL_NAME --model-type CRF \
     --read-names READ_NAME_1,READ_NAME_2,READ_NAME3 \
-    --threads 2
+    --threads CPU_THREADS
 ```
 ```console
 tranquillyzer visualize /path/to/OUTPUT/directory \
     --output-file OUTPUT_FILE_NAME \
     --model-name MODEL_NAME --model-type CRF \
-    --num-reads 10 --threads 2
+    --num-reads 10 --threads CPU_THREADS
+```
+
+### <ins>Simulate Training Data</ins>
+
+In order to train a new model,  simulated training data that mimics the library structure needs to be generated. This is accomplished using the `simulate-data` command, which creates synthetic reads based on a user-defined label schema and error profile. The schema can be defined in a tab-delimited text file, specifying the order and sequences of structural elements (e.g., adapters, barcodes, UMIs, polyA/T tails, cDNA regions). Check the training_seq_orders files in the utils/ directory for examples. The first column specifies the model name, the second column defines the label sequence (using predefined labels like ADAPTER, CBC, UMI, POLYA, POLYT, cDNA), and the third column provides the exact sequences for fixed elements. Variable elements like CBCs and UMIs are represented by 'N's, with their lengths determined by the number of 'N's.
+
+```console
+tranquillyzer simulate-data MODEL_NAME \
+    /path/to/OUTPUT/directory \
+    --num-reads NUM_READS \
+    --threads CPU_THREADS
 ```
 
 ** More detailed usage instructions coming soon **

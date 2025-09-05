@@ -257,7 +257,8 @@ def visualize(output_dir: str,
         dummy_input = tf.zeros((1, 512), dtype=tf.int32)
         _ = model(dummy_input)
         model.load_weights(model_path_w_CRF)
-        with open(os.path.join(models_dir, model_name + "_w_CRF_lbl_bin.pkl"), "rb") as f:
+        with open(os.path.join(models_dir,
+                               model_name + "_w_CRF_lbl_bin.pkl"), "rb") as f:
             label_binarizer = pickle.load(f)
 
     palette = ['red', 'blue', 'green', 'purple', 'pink',
@@ -272,7 +273,8 @@ def visualize(output_dir: str,
             i += 1
 
     # Path to the read_index.parquet
-    index_file_path = os.path.join(output_dir, "full_length_pp_fa/read_index.parquet")
+    index_file_path = os.path.join(output_dir,
+                                   "full_length_pp_fa/read_index.parquet")
 
     os.makedirs(f"{output_dir}/plots", exist_ok=True)
 
@@ -486,7 +488,10 @@ def annotate_reads(
 
                 if result:
                     local_cumulative_stats, local_match_counter, local_cell_counter = result
-                    result_queue.put((local_cumulative_stats, local_match_counter, local_cell_counter, bin_name))
+                    result_queue.put((local_cumulative_stats,
+                                      local_match_counter,
+                                      local_cell_counter,
+                                      bin_name))
                 else:
                     logging.warning(f"No result from post_process_reads in {bin_name}, chunk {chunk_idx}")
 
@@ -535,7 +540,8 @@ def annotate_reads(
 
         workers = [mp.Process(target=post_process_worker,
                               args=(task_queue, count,
-                                    header_track, result_queue)) for _ in range(num_workers)]
+                                    header_track,
+                                    result_queue)) for _ in range(num_workers)]
 
         logging.info(f"Number of workers = {len(workers)}")
 
@@ -547,7 +553,8 @@ def annotate_reads(
         for parquet_file in parquet_files:
             for item in model_predictions(parquet_file, 1,
                                           chunk_size, model_path,
-                                          model_path_w_CRF, model_type,
+                                          model_path_w_CRF,
+                                          model_type,
                                           num_labels):
                 task_queue.put(item)
                 with header_track.get_lock():
@@ -573,10 +580,11 @@ def annotate_reads(
         model_path_w_CRF = f"{models_dir}/{model_name}_w_CRF.h5"
 
         if model_type == "HYB":
+            tmp_invalid_dir = os.path.join(output_dir,
+                                           "tmp_invalid_reads")
 
-            tmp_invalid_dir = os.path.join(output_dir, "tmp_invalid_reads")
-            convert_tsv_to_parquet(tmp_invalid_dir, row_group_size=1000000)
-
+            convert_tsv_to_parquet(tmp_invalid_dir,
+                                   row_group_size=1000000)
             invalid_parquet_files = sorted(
                 [os.path.join(tmp_invalid_dir, f) for f in os.listdir(tmp_invalid_dir) if f.endswith('.parquet') and not f.endswith('read_index.parquet')],
                 key=lambda f: estimate_average_read_length_from_bin(os.path.basename(f).replace(".parquet", ""))
@@ -598,7 +606,8 @@ def annotate_reads(
 
             workers = [mp.Process(target=post_process_worker,
                                   args=(task_queue, count,
-                                        header_track, result_queue)) for _ in range(num_workers)]
+                                        header_track,
+                                        result_queue)) for _ in range(num_workers)]
 
             for worker in workers:
                 worker.start()
@@ -639,7 +648,8 @@ def annotate_reads(
 
         workers = [mp.Process(target=post_process_worker,
                               args=(task_queue, count,
-                                    header_track, result_queue)) for _ in range(num_workers)]
+                                    header_track,
+                                    result_queue)) for _ in range(num_workers)]
 
         for worker in workers:
             worker.start()
@@ -671,13 +681,13 @@ def annotate_reads(
     os.makedirs(f"{output_dir}/plots", exist_ok=True)
 
     logger.info("Generating barcode stats plots")
-    generate_barcodes_stats_pdf(cumulative_barcodes_stats, list(column_mapping.keys()), 
+    generate_barcodes_stats_pdf(cumulative_barcodes_stats, list(column_mapping.keys()),
                                 pdf_filename=f"{output_dir}/plots/barcode_plots.pdf")
     logger.info("Generated barcode stats plots")
 
     logger.info("Generating demux stats plots")
-    generate_demux_stats_pdf(f"{output_dir}/plots/demux_plots.pdf", 
-                             f"{output_dir}/matchType_readCount.tsv", 
+    generate_demux_stats_pdf(f"{output_dir}/plots/demux_plots.pdf",
+                             f"{output_dir}/matchType_readCount.tsv",
                              f"{output_dir}/cellId_readCount.tsv",
                              match_type_counter, cell_id_counter)
     logger.info("Generated demux stats plots")
@@ -688,13 +698,13 @@ def annotate_reads(
             dtypes = {col: pl.Utf8 for col in header if col != "read_length"}
             dtypes["read_length"] = pl.Int64
 
-        df = pl.scan_csv(f"{output_dir}/annotations_valid.tsv", 
-                         separator='\t', 
+        df = pl.scan_csv(f"{output_dir}/annotations_valid.tsv",
+                         separator='\t',
                          dtypes=dtypes)
         annotations_valid_parquet_file = f"{output_dir}/annotations_valid.parquet"
         logger.info("Converting annotations_valid.tsv")
         df.sink_parquet(annotations_valid_parquet_file,
-                        compression="snappy", 
+                        compression="snappy",
                         row_group_size=chunk_size)
         logger.info("Converted annotations_valid.tsv to annotations_valid.parquet")
         os.system(f"rm {output_dir}/annotations_valid.tsv")
@@ -737,7 +747,7 @@ def annotate_reads(
     if model_type == "HYB":
         os.system(f"rm -r {output_dir}/tmp_invalid_reads")
 
-    usage = resource.getrusage(resource.RUSAGE_CHILDREN) 
+    usage = resource.getrusage(resource.RUSAGE_CHILDREN)
     max_rss_mb = usage.ru_maxrss / 1024 if os.uname().sysname == "Linux" else usage.ru_maxrss  # Linux gives KB
     logger.info(f"Peak memory usage during annotation/barcode correction/demuxing: {max_rss_mb:.2f} MB")
     logger.info(f"Elapsed time: {time.time() - start:.2f} seconds")
@@ -763,7 +773,9 @@ def align(
         "for the downstream analysis"
         )),
     threads: int = typer.Option(12, help="number of CPU threads"),
-    add_minimap_args: str = typer.Option("", help="additional minimap2 arguments")
+    add_minimap_args: str = typer.Option("", help=(
+        "additional minimap2 arguments"
+        ))
 ):
 
     start = time.time()
@@ -800,20 +812,31 @@ def align(
 @app.command()
 def dedup(
     input_dir: str,
-    lv_threshold: int = typer.Option(2, help="levenshtein distance threshold for UMI similarity"),
-    stranded: bool = typer.Option(True, help="if directional or non-directional library"),
-    per_cell: bool = typer.Option(True, help="whether to correct umi's per cell basis"),
+    lv_threshold: int = typer.Option(2, help=(
+        "levenshtein distance threshold for UMI similarity"
+        )),
+    stranded: bool = typer.Option(True, help=(
+        "if directional or non-directional library"
+        )),
+    per_cell: bool = typer.Option(True, help=(
+        "whether to correct umi's per cell basis"
+        )),
     threads: int = typer.Option(12, help="number of CPU threads")
 ):
 
     start = time.time()
-    input_bam = os.path.join(input_dir, "aligned_files/demuxed_aligned.bam")
-    out_bam = os.path.join(input_dir, "aligned_files/demuxed_aligned_dup_marked.bam")
+
+    aligned_bam = "aligned_files/demuxed_aligned.bam"
+    dup_marked_bam = "aligned_files/demuxed_aligned_dup_marked.bam"
+
+    input_bam = os.path.join(input_dir, aligned_bam)
+    out_bam = os.path.join(input_dir, dup_marked_bam)
+
     deduplication_parallel(input_bam, out_bam,
                            lv_threshold, per_cell,
                            threads, stranded)
 
-    usage = resource.getrusage(resource.RUSAGE_CHILDREN) 
+    usage = resource.getrusage(resource.RUSAGE_CHILDREN)
     max_rss_mb = usage.ru_maxrss / 1024 if os.uname().sysname == "Linux" else usage.ru_maxrss  # Linux gives KB
     logger.info(f"Peak memory usage during alignment: {max_rss_mb:.2f} MB")
     logger.info(f"Elapsed time: {time.time() - start:.2f} seconds")
