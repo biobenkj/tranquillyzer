@@ -183,6 +183,8 @@ def model_predictions(parquet_file, chunk_start, chunk_size,
         reads = df_chunk["read"].to_list()
         read_lengths = df_chunk["read_length"].to_list()
 
+        base_qualities = df_chunk["base_qualities"].to_list() if "base_qualities" in df_chunk.columns else None
+
         if len(reads) < 100:
             if model_path_w_CRF:
                 model_params_json_path = model_path_w_CRF.replace(".h5", "_params.json")
@@ -233,4 +235,4 @@ def model_predictions(parquet_file, chunk_start, chunk_size,
         gc.collect()
         logger.info("labels inferred")
 
-        yield parquet_file, chunk_idx, chunk_predictions, read_names, reads, read_lengths
+        yield parquet_file, chunk_idx, chunk_predictions, read_names, reads, read_lengths, base_qualities

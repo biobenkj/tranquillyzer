@@ -36,6 +36,7 @@ def load_checkpoint(checkpoint_file, start_bin):
 
 
 def process_full_length_reads_in_chunks_and_save(reads, original_read_names,
+                                                 output_fmt, base_qualities,
                                                  model_type, pass_num,
                                                  model_path_w_CRF,
                                                  predictions, label_binarizer,
@@ -86,6 +87,7 @@ def process_full_length_reads_in_chunks_and_save(reads, original_read_names,
                 for label in barcodes
                 if label in annotated_read and 'Sequences' in annotated_read[label]
             },
+            'base_qualities': base_qualities[i] if output_fmt == "fastq" else None,
             'architecture': annotated_read['architecture'],
             'reason': annotated_read['reason'],
             'orientation': annotated_read['orientation']
@@ -146,8 +148,9 @@ def process_full_length_reads_in_chunks_and_save(reads, original_read_names,
         logging.info("Correcting barcode and demuliplexing valid reads")
         corrected_df, match_type_counts, cell_id_counts = bc_n_demultiplex(valid_reads_df, list(column_mapping.keys()),
                                                                            whitelist_dict, whitelist_df, threshold,
-                                                                           output_dir, demuxed_fasta, demuxed_fasta_lock,
-                                                                           ambiguous_fasta, ambiguous_fasta_lock, n_jobs)
+                                                                           output_dir, output_fmt, demuxed_fasta,
+                                                                           demuxed_fasta_lock, ambiguous_fasta,
+                                                                           ambiguous_fasta_lock, n_jobs)
         logging.info("Corrected barcodes and demuliplexed valid reads")
 
         logging.info("Computing barcode stats")
@@ -188,7 +191,7 @@ def process_full_length_reads_in_chunks_and_save(reads, original_read_names,
     gc.collect()
 
 
-def post_process_reads(reads, read_names, model_type, pass_num,
+def post_process_reads(reads, read_names, output_fmt, base_qualities, model_type, pass_num,
                        model_path_w_CRF, predictions, label_binarizer,
                        cumulative_barcodes_stats, read_lengths,
                        seq_order, add_header, bin_name, output_dir,
@@ -199,13 +202,18 @@ def post_process_reads(reads, read_names, model_type, pass_num,
                        cell_id_counter, demuxed_fasta, demuxed_fasta_lock,
                        ambiguous_fasta, ambiguous_fasta_lock, njobs):
 
-    results = process_full_length_reads_in_chunks_and_save(reads, read_names,
-                                                           model_type, pass_num,
+    results = process_full_length_reads_in_chunks_and_save(reads, read_names, output_fmt,
+                                                           base_qualities, model_type, pass_num,
                                                            model_path_w_CRF, predictions,
                                                            label_binarizer, cumulative_barcodes_stats,
-                                                           read_lengths, seq_order, add_header, output_dir, invalid_output_file, invalid_file_lock,
-                                                           valid_output_file, valid_file_lock, barcodes, whitelist_df, whitelist_dict, demuxed_fasta,
-                                                           demuxed_fasta_lock, ambiguous_fasta, ambiguous_fasta_lock, threshold, bin_name, njobs)
+                                                           read_lengths, seq_order,
+                                                           add_header, output_dir,
+                                                           invalid_output_file, invalid_file_lock,
+                                                           valid_output_file, valid_file_lock,
+                                                           barcodes, whitelist_df, whitelist_dict,
+                                                           demuxed_fasta, demuxed_fasta_lock,
+                                                           ambiguous_fasta, ambiguous_fasta_lock,
+                                                           threshold, bin_name, njobs)
 
     if results is not None:
         match_type_counts, cell_id_counts, cumulative_barcodes_stats = results
