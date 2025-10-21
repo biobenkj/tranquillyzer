@@ -87,6 +87,9 @@ def availableModels():
 
 @app.command()
 def preprocess(fasta_dir: str, output_dir: str,
+               output_base_qual: bool = typer.Option(False, help=(
+                   "Whether to output base quality scores"
+                   )),
                chunk_size: int = typer.Option(100000, help=(
                    "Base chunk size, dynamically adjusts based on read length"
                    )),
@@ -107,7 +110,8 @@ def preprocess(fasta_dir: str, output_dir: str,
         extract_and_bin_reads(
             files_to_process[0],
             chunk_size,
-            output_dir + "/full_length_pp_fa"
+            output_dir + "/full_length_pp_fa",
+            output_base_qual
         )
         os.system(f"rm {output_dir}/full_length_pp_fa/*.lock")
 
@@ -124,7 +128,8 @@ def preprocess(fasta_dir: str, output_dir: str,
         parallel_preprocess_data(
             files_to_process,
             output_dir + "/full_length_pp_fa",
-            chunk_size,
+            chunk_size, 
+            output_base_qual,
             num_workers=threads
         )
     usage = resource.getrusage(resource.RUSAGE_CHILDREN)
@@ -133,7 +138,7 @@ def preprocess(fasta_dir: str, output_dir: str,
         if os.uname().sysname == "Linux"
         else usage.ru_maxrss
     )
-    logger.info(f"Peak memory usage during alignment: {max_rss_mb:.2f} MB")
+    logger.info(f"Peak memory usage: {max_rss_mb:.2f} MB")
     logger.info(f"Elapsed time: {time.time() - start:.2f} seconds")
 
 # ==============================
@@ -358,7 +363,7 @@ def visualize(output_dir: str,
 
     usage = resource.getrusage(resource.RUSAGE_CHILDREN)
     max_rss_mb = usage.ru_maxrss / 1024 if os.uname().sysname == "Linux" else usage.ru_maxrss  # Linux gives KB
-    logger.info(f"Peak memory usage during alignment: {max_rss_mb:.2f} MB")
+    logger.info(f"Peak memory usage: {max_rss_mb:.2f} MB")
     logger.info(f"Elapsed time: {time.time() - start:.2f} seconds")
 
 # =========================
@@ -370,6 +375,9 @@ def visualize(output_dir: str,
 def annotate_reads(
     output_dir: str,
     whitelist_file: str,
+    output_fmt: str = typer.Option("fasta", help=(
+        "output format for demultiplexed reads: fasta or fastq"
+        )),
     model_name: str = typer.Option(
         "10x3p_sc_ont_011",
         help="""Base model name. Use the name of the model without any suffix.\n
@@ -444,16 +452,22 @@ def annotate_reads(
     fasta_dir = os.path.join(output_dir, "demuxed_fasta")
     os.makedirs(fasta_dir, exist_ok=True)
 
-    demuxed_fasta = os.path.join(fasta_dir, "demuxed.fasta")
+    if output_fmt == "fastq":
+        logger.info("Selected output format: FASTQ")
+        demuxed_fasta = os.path.join(fasta_dir, "demuxed.fastq")
+        ambiguous_fasta = os.path.join(fasta_dir, "ambiguous.fastq")
+    elif output_fmt == "fasta":
+        logger.info("Selected output format: FASTA")
+        demuxed_fasta = os.path.join(fasta_dir, "demuxed.fasta")
+        ambiguous_fasta = os.path.join(fasta_dir, "ambiguous.fasta")
+ 
     demuxed_fasta_lock = FileLock(demuxed_fasta + ".lock")
-
-    ambiguous_fasta = os.path.join(fasta_dir, "ambiguous.fasta")
     ambiguous_fasta_lock = FileLock(ambiguous_fasta + ".lock")
 
     invalid_file_lock = FileLock(invalid_output_file + ".lock")
     valid_file_lock = FileLock(valid_output_file + ".lock")
 
-    def post_process_worker(task_queue, count, header_track, result_queue):
+    def post_process_worker(task_queue, output_fmt, count, header_track, result_queue):
         """Worker function for processing reads and returning results."""
         while True:
             try:
@@ -461,7 +475,7 @@ def annotate_reads(
                 if item is None:
                     break
 
-                parquet_file, chunk_idx, predictions, read_names, reads, read_lengths = item
+                parquet_file, chunk_idx, predictions, read_names, reads, read_lengths, base_qualities = item
                 bin_name = os.path.basename(parquet_file).replace(".parquet", "")
 
                 append = "w" if chunk_idx == 1 else "a"
@@ -476,14 +490,15 @@ def annotate_reads(
                     add_header = header_track.value == 0
 
                 result = post_process_reads(
-                    reads, read_names, model_type, pass_num, model_path_w_CRF,
-                    predictions, label_binarizer, local_cumulative_stats,
-                    read_lengths, seq_order, add_header, bin_name, output_dir,
-                    invalid_output_file, invalid_file_lock, valid_output_file,
-                    valid_file_lock, barcodes, whitelist_df, whitelist_dict,
-                    bc_lv_threshold, checkpoint_file, 1, local_match_counter,
-                    local_cell_counter, demuxed_fasta, demuxed_fasta_lock,
-                    ambiguous_fasta, ambiguous_fasta_lock, threads
+                    reads, read_names, output_fmt, base_qualities, model_type, pass_num, 
+                    model_path_w_CRF, predictions, label_binarizer,
+                    local_cumulative_stats, read_lengths, seq_order,
+                    add_header, bin_name, output_dir, invalid_output_file,
+                    invalid_file_lock, valid_output_file, valid_file_lock,
+                    barcodes, whitelist_df, whitelist_dict, bc_lv_threshold,
+                    checkpoint_file, 1, local_match_counter, local_cell_counter,
+                    demuxed_fasta, demuxed_fasta_lock, ambiguous_fasta,
+                    ambiguous_fasta_lock, threads
                 )
 
                 if result:
@@ -539,8 +554,8 @@ def annotate_reads(
         logging.info(f"[Memory] RSS: {psutil.Process().memory_info().rss / 1e6:.2f} MB")
 
         workers = [mp.Process(target=post_process_worker,
-                              args=(task_queue, count,
-                                    header_track,
+                              args=(task_queue, output_fmt,
+                                    count, header_track,
                                     result_queue)) for _ in range(num_workers)]
 
         logging.info(f"Number of workers = {len(workers)}")
@@ -605,7 +620,7 @@ def annotate_reads(
                 header_track.value = 0
 
             workers = [mp.Process(target=post_process_worker,
-                                  args=(task_queue, count,
+                                  args=(task_queue, output_fmt, count,
                                         header_track,
                                         result_queue)) for _ in range(num_workers)]
 
@@ -647,7 +662,7 @@ def annotate_reads(
         pass_num = 1
 
         workers = [mp.Process(target=post_process_worker,
-                              args=(task_queue, count,
+                              args=(task_queue, output_fmt, count,
                                     header_track,
                                     result_queue)) for _ in range(num_workers)]
 
@@ -743,6 +758,10 @@ def annotate_reads(
         os.system(f"rm {output_dir}/demuxed_fasta/demuxed.fasta.lock")
     if os.path.exists(f"{output_dir}/demuxed_fasta/ambiguous.fasta.lock"):
         os.system(f"rm {output_dir}/demuxed_fasta/ambiguous.fasta.lock")
+    if os.path.exists(f"{output_dir}/demuxed_fasta/demuxed.fastq.lock"):
+        os.system(f"rm {output_dir}/demuxed_fasta/demuxed.fastq.lock")
+    if os.path.exists(f"{output_dir}/demuxed_fasta/ambiguous.fastq.lock"):
+        os.system(f"rm {output_dir}/demuxed_fasta/ambiguous.fastq.lock")
 
     if model_type == "HYB":
         os.system(f"rm -r {output_dir}/tmp_invalid_reads")
@@ -838,7 +857,7 @@ def dedup(
 
     usage = resource.getrusage(resource.RUSAGE_CHILDREN)
     max_rss_mb = usage.ru_maxrss / 1024 if os.uname().sysname == "Linux" else usage.ru_maxrss  # Linux gives KB
-    logger.info(f"Peak memory usage during alignment: {max_rss_mb:.2f} MB")
+    logger.info(f"Peak memory usage: {max_rss_mb:.2f} MB")
     logger.info(f"Elapsed time: {time.time() - start:.2f} seconds")
 
 # ===========================
@@ -957,7 +976,9 @@ def train_model(model_name: str,
                     "whether to include reverse complements of "
                     "the reads in the training data.\nFinal dataset will "
                     "contain twice the number of user-specified reads"
-                    ))):
+                    )),
+                transcriptome: str = typer.Option(None, help="transcriptome fasta file"),
+                invalid_fraction: float = typer.Option(0.3, help="fraction of invalid reads to generate")):
 
     base_dir = os.path.dirname(os.path.abspath(__file__))
     models_dir = os.path.join(base_dir, "models")
@@ -1007,10 +1028,29 @@ def train_model(model_name: str,
     validation_segment_pattern.extend(sequences)
     validation_segment_pattern.append("RN")
 
+    if transcriptome:
+        logger.info("Loading transcriptome fasta file")
+        transcriptome_records = list(SeqIO.parse(transcriptome, "fasta"))
+        logger.info("Transcriptome fasta loaded")
+    else:
+        logger.info("No transcriptome provided. Will generate random transcripts...")
+        transcriptome_records = []
+        for i in range(num_val_reads):
+            length = random.randint(min_cDNA, max_cDNA)
+            seq_str = "".join(np.random.choice(list("ATCG")) for _ in range(length))
+            record = SeqRecord(
+                Seq(seq_str),
+                id=f"random_transcript_{i+1}",
+                description=f"Synthetic transcript {i+1}"
+            )
+            transcriptome_records.append(record)
+        logger.info(f"Generated {len(transcriptome_records)} synthetic transcripts")
+
     validation_reads, validation_labels = generate_training_reads(
         num_val_reads, mismatch_rate, insertion_rate, deletion_rate,
         polyT_error_rate, max_insertions, validation_segment_order,
-        validation_segment_pattern, length_range, threads, rc)
+        validation_segment_pattern, length_range, threads, rc,
+        transcriptome_records, invalid_fraction)
 
     palette = ['red', 'blue', 'green', 'purple', 'pink',
                'cyan', 'magenta', 'orange', 'brown']

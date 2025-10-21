@@ -1,2 +1,2 @@
 #__init__.py
-"""Utilities for Tranquillyzer."""
+"""Utilities for Tranquilizer."""
