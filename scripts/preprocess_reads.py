@@ -29,8 +29,7 @@ def determine_bin(length, bin_size=500):
     return f"{bin_start}_{bin_end}bp"
 
 
-def extract_and_bin_reads(file_path, batch_size, 
-                          output_dir, output_base_qual):
+def extract_and_bin_reads(file_path, batch_size, output_dir):
     reads_by_bin = {}
     file_format = 'fasta' if file_path.endswith(('.fa', '.fasta', '.fa.gz', '.fasta.gz')) else 'fastq'
 
@@ -40,16 +39,10 @@ def extract_and_bin_reads(file_path, batch_size,
             bin_name = determine_bin(read_length)
 
             # Ensure that the bin is initialized with all required keys
-            if output_base_qual:
-                if bin_name not in reads_by_bin:
-                    reads_by_bin[bin_name] = {'read_names': [], 'reads': [],
-                                              'read_lengths': [], 'base_quals': []}
-                reads_by_bin[bin_name]['base_quals'].append(record.format("fastq").splitlines()[3])
-            
-            else:
-                if bin_name not in reads_by_bin:
-                    reads_by_bin[bin_name] = {'read_names': [], 'reads': [],
-                                              'read_lengths': []}
+            if bin_name not in reads_by_bin:
+                reads_by_bin[bin_name] = {'read_names': [],
+                                          'reads': [],
+                                          'read_lengths': []}
 
             reads_by_bin[bin_name]['read_names'].append(record.id)
             reads_by_bin[bin_name]['reads'].append(str(record.seq))
@@ -57,25 +50,18 @@ def extract_and_bin_reads(file_path, batch_size,
 
             # Once a bin reaches the batch size, save it and reset
             if len(reads_by_bin[bin_name]['reads']) >= batch_size:
-                dump_bin_data(output_dir, output_base_qual, bin_name, 
-                              reads_by_bin[bin_name])
-                if output_base_qual:
-                    reads_by_bin[bin_name] = {'read_names': [], 'reads': [],
-                                              'read_lengths': [], 'base_quals': []}
-                    reads_by_bin[bin_name]['base_quals'].append(record.format("fastq").splitlines()[3])
-                else:
-                    reads_by_bin[bin_name] = {'read_names': [],
-                                              'reads': [],
-                                              'read_lengths': []}
+                dump_bin_data(output_dir, bin_name, reads_by_bin[bin_name])
+                reads_by_bin[bin_name] = {'read_names': [],
+                                          'reads': [],
+                                          'read_lengths': []}
 
         # Dump any remaining data after file is fully read
-        # print(reads_by_bin["0_499bp"]['reads'])
         for bin_name, data in reads_by_bin.items():
             if data['reads']:
-                dump_bin_data(output_dir, output_base_qual, bin_name, data)
+                dump_bin_data(output_dir, bin_name, data)
 
 
-def dump_bin_data(output_dir, output_base_qual, bin_name, data):
+def dump_bin_data(output_dir, bin_name, data):
     os.makedirs(output_dir, exist_ok=True)
     tsv_filename = os.path.join(output_dir, f"{bin_name}.tsv")
     lock_filename = tsv_filename + '.lock'  # Create a lock file for the TSV
@@ -83,18 +69,10 @@ def dump_bin_data(output_dir, output_base_qual, bin_name, data):
     if len(data['reads']) == 0:
         return
 
-    if output_base_qual:
-        df = pl.DataFrame({
-            "ReadName": data['read_names'],
-            "read": data['reads'],
-            "read_length": data['read_lengths'],
-            "base_qualities": data['base_quals']
-        })
-    else:
-        df = pl.DataFrame({
-            "ReadName": data['read_names'],
-            "read": data['reads'],
-            "read_length": data['read_lengths']
+    df = pl.DataFrame({
+        "ReadName": data['read_names'],
+        "read": data['reads'],
+        "read_length": data['read_lengths']
     })
 
     try:
@@ -113,8 +91,7 @@ def dump_bin_data(output_dir, output_base_qual, bin_name, data):
         logger.error(f"Error writing {tsv_filename}: {e}")
 
 
-def parallel_preprocess_data(file_list, output_dir, batch_size, 
-                             output_base_qual, num_workers=4):
+def parallel_preprocess_data(file_list, output_dir, batch_size, num_workers=4):
     total_files = len(file_list)
 
     if total_files < num_workers:
@@ -126,7 +103,7 @@ def parallel_preprocess_data(file_list, output_dir, batch_size,
     with ProcessPoolExecutor(max_workers=num_workers) as executor:
         for file_path in file_list:
             executor.submit(extract_and_bin_reads, file_path,
-                            batch_size, output_dir, output_base_qual)
+                            batch_size, output_dir)
 
     end_time = time.time()
     logger.info(f"Processed {total_files} files in {end_time - start_time:.2f} seconds.")

@@ -44,7 +44,6 @@ def test_preprocess():
         "preprocess",
         RAW_INPUT_DIR,
         OUT_DIR,
-        "--output-base-qual",
         "--threads", THREADS,
     ])
 
