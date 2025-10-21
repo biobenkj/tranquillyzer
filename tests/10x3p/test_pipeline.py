@@ -38,7 +38,7 @@ def run_cmd(cmd, timeout=900):
 
 
 @pytest.mark.order(1)
-def test_preprocess():
+def test_preprocess_wo_base_qual():
     run_cmd([
         "tranquillyzer",
         "preprocess",
@@ -130,4 +130,28 @@ def test_available_models():
     run_cmd([
         "tranquillyzer",
         "availablemodels",
+    ])
+
+@pytest.mark.order(9)
+def test_preprocess_w_base_qual():
+    run_cmd([
+        "tranquillyzer",
+        "preprocess",
+        RAW_INPUT_DIR,
+        OUT_DIR,
+        "--output-base-qual",
+        "--threads", THREADS,
+    ])
+
+@pytest.mark.order(10)
+def test_annotate_reads_w_base_qual():
+    run_cmd([
+        "tranquillyzer",
+        "annotate-reads",
+        OUT_DIR,
+        BARCODES,
+        "--output-fmt", "fastq",
+        "--model-type", "CRF",
+        "--chunk-size", 100000,
+        "--threads", THREADS,
     ])
