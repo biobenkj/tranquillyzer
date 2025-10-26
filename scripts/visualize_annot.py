@@ -100,7 +100,6 @@ def save_plots_to_pdf(sequences, annotated_reads,
                 print(f"Warning: Empty sequence for {read_name}. Skipping.")
                 continue
             predicted_labels = [""] * len(sequence)
-            print(len(predicted_labels))
             for label, regions in annotated_read.items():
                 if label in ['architecture', 'read', 'reason', 'orientation', 'read_length']:
                     continue
@@ -108,7 +107,7 @@ def save_plots_to_pdf(sequences, annotated_reads,
                     if start >= len(sequence) or end > len(sequence):  # Check for out-of-bound regions
                         print(f"Error: Annotation bounds exceed sequence length for {read_name}. Skipping this annotation.")
                         continue
-                    predicted_labels[start:end+1] = [label] * (end - start + 1)
+                    predicted_labels[start:end] = [label] * (end - start)
 
             architecture = annotated_read.get('architecture', 'N/A')
             reason = annotated_read.get('reason', 'N/A')
