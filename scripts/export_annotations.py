@@ -36,7 +36,8 @@ def load_checkpoint(checkpoint_file, start_bin):
 
 
 def process_full_length_reads_in_chunks_and_save(reads, original_read_names,
-                                                 output_fmt, base_qualities,
+                                                 strand, output_fmt, 
+                                                 base_qualities,
                                                  model_type, pass_num,
                                                  model_path_w_CRF,
                                                  predictions, label_binarizer,
@@ -146,7 +147,8 @@ def process_full_length_reads_in_chunks_and_save(reads, original_read_names,
     # Process barcodes in parallel
     if not valid_reads_df.empty:
         logging.info("Correcting barcode and demuliplexing valid reads")
-        corrected_df, match_type_counts, cell_id_counts = bc_n_demultiplex(valid_reads_df, list(column_mapping.keys()),
+        corrected_df, match_type_counts, cell_id_counts = bc_n_demultiplex(valid_reads_df, strand, 
+                                                                           list(column_mapping.keys()),
                                                                            whitelist_dict, whitelist_df, threshold,
                                                                            output_dir, output_fmt, demuxed_fasta,
                                                                            demuxed_fasta_lock, ambiguous_fasta,
@@ -191,7 +193,8 @@ def process_full_length_reads_in_chunks_and_save(reads, original_read_names,
     gc.collect()
 
 
-def post_process_reads(reads, read_names, output_fmt, base_qualities, model_type, pass_num,
+def post_process_reads(reads, read_names, strand, output_fmt, 
+                       base_qualities, model_type, pass_num,
                        model_path_w_CRF, predictions, label_binarizer,
                        cumulative_barcodes_stats, read_lengths,
                        seq_order, add_header, bin_name, output_dir,
@@ -202,7 +205,7 @@ def post_process_reads(reads, read_names, output_fmt, base_qualities, model_type
                        cell_id_counter, demuxed_fasta, demuxed_fasta_lock,
                        ambiguous_fasta, ambiguous_fasta_lock, njobs):
 
-    results = process_full_length_reads_in_chunks_and_save(reads, read_names, output_fmt,
+    results = process_full_length_reads_in_chunks_and_save(reads, read_names, strand, output_fmt,
                                                            base_qualities, model_type, pass_num,
                                                            model_path_w_CRF, predictions,
                                                            label_binarizer, cumulative_barcodes_stats,

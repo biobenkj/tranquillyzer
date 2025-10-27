@@ -39,6 +39,7 @@ def seq_orders(file_path, model):
         sequences = []
         barcodes = []
         UMIs = []
+        strand = ""
 
         # Open the file and read lines
         with open(file_path, 'r') as file:
@@ -60,15 +61,18 @@ def seq_orders(file_path, model):
                     UMIs = UMIs[1:-1] 
                 UMIs = UMIs.rstrip().split(',')
 
+                strand = fields[5].rstrip()
+
                 # The first part is the model name, the rest are sequences
                 if model_name == model:
                     sequence_order = sequence_order
                     sequences = sequences
                     barcodes = barcodes
                     UMIs = UMIs
+                    strand = strand
                     break
 
-        return sequence_order, sequences, barcodes, UMIs
+        return sequence_order, sequences, barcodes, UMIs, strand
     except Exception as e:
         print(f"An error occurred: {e}")
 
@@ -85,6 +89,7 @@ def training_seq_orders(file_path, model):
         barcodes = []
         UMIs = []
         training_seq_orders = []  # New list to store sequence orders
+        strand = ""
 
         # Open the file and read lines
         with open(file_path, 'r') as file:
@@ -110,27 +115,29 @@ def training_seq_orders(file_path, model):
                 if (UMIs.startswith("'") and UMIs.endswith("'")) or (UMIs.startswith("\"") and UMIs.endswith("\"")):
                     UMIs = UMIs[1:-1]
                 UMIs = [u.strip() for u in UMIs.split(',')]
+                
+                # Parse strand
+                strand = fields[5].strip()
 
                 # Check if a 6th column exists
-                if len(fields) > 5:
-                    training_order_str = fields[5].strip()
+                if len(fields) > 6:
+                    training_order_str = fields[6].strip()
                     if training_order_str:
                         training_seq_orders = [
                             [seg.strip() for seg in order.split(',')] for order in training_order_str.split(':')
                         ]
                     # Return all five values if column 6 is present
                     if model_name == model:
-                        return sequence_order, sequences, barcodes, UMIs, training_seq_orders
-                
+                        return sequence_order, sequences, barcodes, UMIs, training_seq_orders, strand
                 # Return only the first four values if column 6 is missing
                 if model_name == model:
-                    return sequence_order, sequences, barcodes, UMIs, []
+                    return sequence_order, sequences, barcodes, UMIs, [], strand
 
         # Default return values (if no matching model is found)
         if training_seq_orders:
-            return sequence_order, sequences, barcodes, UMIs, training_seq_orders
+            return sequence_order, sequences, barcodes, UMIs, training_seq_orders, strand
         else:
-            return sequence_order, sequences, barcodes, UMIs, []
+            return sequence_order, sequences, barcodes, UMIs, [], strand
 
     except Exception as e:
         print(f"An error occurred: {e}")
