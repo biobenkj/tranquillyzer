@@ -90,7 +90,7 @@ def write_reads_to_fasta(batch_reads, output_fmt, demuxed_fasta,
         fasta_file.close()
 
 
-def process_row(row, barcode_columns,
+def process_row(row, strand, barcode_columns,
                 whitelist_dict, whitelist_df,
                 threshold, output_dir, output_fmt):
     result = {
@@ -139,9 +139,12 @@ def process_row(row, barcode_columns,
     corrected_barcodes_str = ";".join(corrected_barcodes)
     # corrected_barcode_seqs_str = "-".join(corrected_barcode_seqs)
 
+    orientation = row['orientation']
+
     result['architecture'] = row['architecture']
     result['reason'] = row['reason']
-    result['orientation'] = row['orientation']
+    # result['orientation'] = row['orientation']
+    result['orientation'] = orientation
 
     cell_id, local_match_counts, local_cell_counts = assign_cell_id(result,
                                                                     whitelist_df,
@@ -153,26 +156,39 @@ def process_row(row, barcode_columns,
     cDNA_sequence = row['read'][int(row['cDNA_Starts']):int(row['cDNA_Ends'])]
     umi_sequence = row['read'][int(row['UMI_Starts']):int(row['UMI_Ends'])]
 
+    if orientation == "+" and strand == "fwd":
+        pass
+    elif orientation == "-" and strand == "fwd":
+        cDNA_sequence = reverse_complement(cDNA_sequence)
+        umi_sequence = reverse_complement(umi_sequence)
+    elif orientation == "+" and strand == "rev":
+        cDNA_sequence = reverse_complement(cDNA_sequence)
+        umi_sequence = reverse_complement(umi_sequence)
+    elif orientation == "-" and strand == "rev":
+        pass
+    else:
+        pass  
+
     batch_reads = defaultdict(list)
     if output_fmt == "fasta":
          batch_reads[corrected_barcode_seqs_str].append(
-            (f">{row['ReadName']}_{corrected_barcode_seqs_str}_{umi_sequence} cell_id:{cell_id}|Barcodes:{corrected_barcodes_str}|UMI:{umi_sequence}",
+            (f">{row['ReadName']}_{corrected_barcode_seqs_str}_{umi_sequence} cell_id:{cell_id}|Barcodes:{corrected_barcodes_str}|UMI:{umi_sequence}|orientation:{orientation}",
             cDNA_sequence)
     )
     elif output_fmt == "fastq":
          batch_reads[corrected_barcode_seqs_str].append(
-            (f"@{row['ReadName']}_{corrected_barcode_seqs_str}_{umi_sequence} cell_id:{cell_id}|Barcodes:{corrected_barcodes_str}|UMI:{umi_sequence}",
+            (f"@{row['ReadName']}_{corrected_barcode_seqs_str}_{umi_sequence} cell_id:{cell_id}|Barcodes:{corrected_barcodes_str}|UMI:{umi_sequence}|orientation:{orientation}",
             cDNA_sequence, row['base_qualities'])
         )
     return result, local_match_counts, local_cell_counts, batch_reads
 
 
-def bc_n_demultiplex(chunk, barcode_columns, whitelist_dict,
+def bc_n_demultiplex(chunk, strand, barcode_columns, whitelist_dict,
                      whitelist_df, threshold, output_dir,
                      output_fmt, demuxed_fasta, demuxed_fasta_lock,
                      ambiguous_fasta, ambiguous_fasta_lock,
                      num_cores):
-    args = [(row, barcode_columns, whitelist_dict, whitelist_df, threshold, output_dir, output_fmt) for _, row in chunk.iterrows()]
+    args = [(row, strand, barcode_columns, whitelist_dict, whitelist_df, threshold, output_dir, output_fmt) for _, row in chunk.iterrows()]
     batch_reads = defaultdict(list)
     results = []
 

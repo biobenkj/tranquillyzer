@@ -215,7 +215,7 @@ def visualize(output_dir: str,
     utils_dir = os.path.join(base_dir, "utils")
     utils_dir = os.path.abspath(utils_dir)
 
-    seq_order, sequences, barcodes, UMIs = seq_orders(
+    seq_order, sequences, barcodes, UMIs, strand = seq_orders(
         os.path.join(utils_dir, "seq_orders.tsv"),
         model_name
     )
@@ -419,7 +419,7 @@ def annotate_reads(
         with open(f"{models_dir}/{model_name}_lbl_bin.pkl", "rb") as f:
             label_binarizer = pickle.load(f)
 
-    seq_order, sequences, barcodes, UMIs = seq_orders(f"{utils_dir}/seq_orders.tsv", model_name)
+    seq_order, sequences, barcodes, UMIs, strand = seq_orders(f"{utils_dir}/seq_orders.tsv", model_name)
     whitelist_df = pd.read_csv(whitelist_file, sep='\t')
     num_labels = len(seq_order)
 
@@ -470,7 +470,7 @@ def annotate_reads(
     invalid_file_lock = FileLock(invalid_output_file + ".lock")
     valid_file_lock = FileLock(valid_output_file + ".lock")
 
-    def post_process_worker(task_queue, output_fmt, count, header_track, result_queue):
+    def post_process_worker(task_queue, strand, output_fmt, count, header_track, result_queue):
         """Worker function for processing reads and returning results."""
         while True:
             try:
@@ -493,15 +493,23 @@ def annotate_reads(
                     add_header = header_track.value == 0
 
                 result = post_process_reads(
-                    reads, read_names, output_fmt, base_qualities, model_type, 
+                    reads, read_names, strand, output_fmt,
+                    base_qualities, model_type,
                     pass_num, model_path_w_CRF,
-                    predictions, label_binarizer, local_cumulative_stats,
-                    read_lengths, seq_order, add_header, bin_name, output_dir,
-                    invalid_output_file, invalid_file_lock, valid_output_file,
-                    valid_file_lock, barcodes, whitelist_df, whitelist_dict,
-                    bc_lv_threshold, checkpoint_file, 1, local_match_counter,
-                    local_cell_counter, demuxed_fasta, demuxed_fasta_lock,
-                    ambiguous_fasta, ambiguous_fasta_lock, threads
+                    predictions, label_binarizer,
+                    local_cumulative_stats,
+                    read_lengths, seq_order,
+                    add_header, bin_name, output_dir,
+                    invalid_output_file,
+                    invalid_file_lock, valid_output_file,
+                    valid_file_lock, barcodes,
+                    whitelist_df, whitelist_dict,
+                    bc_lv_threshold, checkpoint_file,
+                    1, local_match_counter,
+                    local_cell_counter, demuxed_fasta,
+                    demuxed_fasta_lock,
+                    ambiguous_fasta,
+                    ambiguous_fasta_lock, threads
                 )
 
                 if result:
@@ -557,7 +565,8 @@ def annotate_reads(
         logging.info(f"[Memory] RSS: {psutil.Process().memory_info().rss / 1e6:.2f} MB")
 
         workers = [mp.Process(target=post_process_worker,
-                              args=(task_queue, output_fmt, count,
+                              args=(task_queue, strand, 
+                                    output_fmt, count,
                                     header_track,
                                     result_queue)) for _ in range(num_workers)]
 
@@ -623,7 +632,8 @@ def annotate_reads(
                 header_track.value = 0
 
             workers = [mp.Process(target=post_process_worker,
-                                  args=(task_queue, output_fmt, count,
+                                  args=(task_queue, strand,
+                                        output_fmt, count,
                                         header_track,
                                         result_queue)) for _ in range(num_workers)]
 
@@ -665,7 +675,8 @@ def annotate_reads(
         pass_num = 1
 
         workers = [mp.Process(target=post_process_worker,
-                              args=(task_queue, output_fmt, count,
+                              args=(task_queue, strand,
+                                    output_fmt, count,
                                     header_track,
                                     result_queue)) for _ in range(num_workers)]
 
@@ -904,7 +915,7 @@ def simulate_data(model_name: str,
     utils_dir = os.path.join(base_dir, "utils")
     utils_dir = os.path.abspath(utils_dir)
 
-    seq_order, sequences, barcodes, UMIs = seq_orders(
+    seq_order, sequences, barcodes, UMIs, strand = seq_orders(
         f"{utils_dir}/training_seq_orders.tsv", model_name
         )
     seq_order_dict = {}
@@ -1017,7 +1028,7 @@ def train_model(model_name: str,
 
     length_range = (min_cDNA, max_cDNA)
 
-    seq_order, sequences, barcodes, UMIs = seq_orders(
+    seq_order, sequences, barcodes, UMIs, strand = seq_orders(
         f"{utils_dir}/training_seq_orders.tsv", model_name
         )
 
