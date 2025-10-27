@@ -98,7 +98,7 @@ def process_row(row, barcode_columns,
         'read_length': row['read_length'],
         'cDNA_Starts': row['cDNA_Starts'],
         'cDNA_Ends': row['cDNA_Ends'],
-        'cDNA_length': int(row['cDNA_Ends']) - int(row['cDNA_Starts']) + 1,
+        'cDNA_length': int(row['cDNA_Ends']) - int(row['cDNA_Starts']),
         'UMI_Starts': row['UMI_Starts'],
         'UMI_Ends': row['UMI_Ends'],
         'random_s_Starts': row['random_s_Starts'],
@@ -110,11 +110,11 @@ def process_row(row, barcode_columns,
     if 'polyA_Starts' in row and row['polyA_Starts'] != "":
         result['polyA_Starts'] = row['polyA_Starts']
         result['polyA_Ends'] = row['polyA_Ends']
-        result['polyA_lengths'] = int(row['polyA_Ends']) - int(row['polyA_Starts']) + 1
+        result['polyA_lengths'] = int(row['polyA_Ends']) - int(row['polyA_Starts'])
     elif 'polyT_Starts' in row and row['polyT_Starts'] != "":
         result['polyA_Starts'] = row['polyT_Starts']
         result['polyA_Ends'] = row['polyT_Ends']
-        result['polyA_lengths'] = int(row['polyT_Ends']) - int(row['polyT_Starts']) + 1
+        result['polyA_lengths'] = int(row['polyT_Ends']) - int(row['polyT_Starts'])
     else:
         result['polyA_Starts'] = None
         result['polyA_Ends'] = None
@@ -150,8 +150,8 @@ def process_row(row, barcode_columns,
 
     corrected_barcode_seqs_str = whitelist_dict["cell_ids"][cell_id] if cell_id != "ambiguous" else "ambiguous"
 
-    cDNA_sequence = row['read'][int(row['cDNA_Starts']):int(row['cDNA_Ends']) + 1]
-    umi_sequence = row['read'][int(row['UMI_Starts']):int(row['UMI_Ends']) + 1]
+    cDNA_sequence = row['read'][int(row['cDNA_Starts']):int(row['cDNA_Ends'])]
+    umi_sequence = row['read'][int(row['UMI_Starts']):int(row['UMI_Ends'])]
 
     batch_reads = defaultdict(list)
     if output_fmt == "fasta":

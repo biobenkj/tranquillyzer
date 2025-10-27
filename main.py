@@ -391,6 +391,9 @@ def annotate_reads(
             (of reads not qualifying validity filter) with CNN-LSTM-CRF[/green]
             """)
         ] = "HYB",
+    strand: str = typer.Option("unstranded", help=(
+        "Strand information of the reads: 3', 5', unstranded"
+        )),
     chunk_size: int = typer.Option(
         100000, help=(
         "Base chunk size, dynamically adjusts based on read length"
@@ -878,7 +881,7 @@ def simulate_data(model_name: str,
                       "error rate within "
                       "polyT or polyA segments"
                       )),
-                  max_insertions: float = typer.Option(5, help=(
+                  max_insertions: float = typer.Option(1, help=(
                       "maximum number of allowed "
                       "insertions after a base"
                       )),
@@ -963,7 +966,7 @@ def simulate_data(model_name: str,
 @app.command()
 def train_model(model_name: str,
                 output_dir: str,
-                num_val_reads: int = typer.Option(10, help="number of reads to simulate"),
+                num_val_reads: int = typer.Option(20, help="number of reads to simulate"),
                 mismatch_rate: float = typer.Option(0.05, help="mismatch rate"),
                 insertion_rate: float = typer.Option(0.05, help="insertion rate"),
                 deletion_rate: float = typer.Option(0.06, help="deletion rate"),

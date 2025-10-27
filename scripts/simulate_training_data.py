@@ -20,10 +20,10 @@ def introduce_errors_with_labels_context(sequence, label, mismatch_rate,
             local_mismatch_rate = polyT_error_rate
             local_insertion_rate = polyT_error_rate
             local_deletion_rate = polyT_error_rate
-        elif lbl == 'ACC':
-            local_mismatch_rate = 0
-            local_insertion_rate = 0
-            local_deletion_rate = 0
+        elif lbl == 'ACC' or lbl == 'cDNA':
+            local_mismatch_rate = 0.02
+            local_insertion_rate = 0.02
+            local_deletion_rate = 0.02
         else:
             local_mismatch_rate = mismatch_rate
             local_insertion_rate = insertion_rate
@@ -70,7 +70,7 @@ def generate_segment(segment_type, segment_pattern,
         sequence = fragment
         label = ["cDNA"] * len(sequence)
     elif segment_pattern == "RN" and segment_type == "cDNA":
-        length = np.random.randint(0, 50)
+        length = np.random.randint(5, 50)
         if transcriptome_records:
             transcript = random.choice(transcriptome_records)
             transcript_seq = str(transcript.seq)
@@ -118,9 +118,13 @@ def reverse_labels(labels):
 
 def generate_invalid_read(segments_order, segments_patterns,
                           length_range, transcriptome_records):
+    # corruption_type = random.choice([
+    #     "concat", "repeat_adapter_5p",
+    #     "repeat_adapter_3p",
+    # ])
+
     corruption_type = random.choice([
-        "concat", "repeat_adapter_5p",
-        "repeat_adapter_3p",
+        "concat"
     ])
 
     if corruption_type == "concat":
@@ -136,10 +140,11 @@ def generate_invalid_read(segments_order, segments_patterns,
         # Randomly reverse or reverse complement second read
         strand_flip = random.choices(["none", "reverse", "revcomp"],
                                      weights=[0.5, 0.25, 0.25])[0]
+   
         if strand_flip == "reverse":
             read2 = read2[::-1]
             label2 = label2[::-1]
-        elif strand_flip == "revcomp":
+        if strand_flip == "revcomp":
             read2 = reverse_complement(read2)
             label2 = label2[::-1]  # reverse label direction to match RC
 
@@ -175,62 +180,76 @@ def generate_invalid_read(segments_order, segments_patterns,
 ############## simulate complete batch ##############
 
 
-def simulate_dynamic_batch_complete(num_reads, length_range,
-                                    mismatch_rate, insertion_rate,
-                                    deletion_rate, polyT_error_rate,
-                                    max_insertions, segments_order,
-                                    segments_patterns, transcriptome_records,
-                                    invalid_fraction):
+def simulate_dynamic_batch_complete(
+    num_reads, length_range,
+    mismatch_rate, insertion_rate, deletion_rate,
+    polyT_error_rate, max_insertions,
+    segments_order, segments_patterns,
+    transcriptome_records, invalid_fraction, rc
+):
     reads, labels = [], []
 
     for _ in range(num_reads):
+        # Generate clean read first
         if np.random.rand() < invalid_fraction:
-            sequence, label = generate_invalid_read(segments_order,
-                                                    segments_patterns,
-                                                    length_range,
-                                                    transcriptome_records)
+            sequence, label = generate_invalid_read(
+                segments_order, segments_patterns,
+                length_range, transcriptome_records
+            )
         else:
-            sequence, label = generate_valid_read(segments_order,
-                                                  segments_patterns,
-                                                  length_range,
-                                                  transcriptome_records)
+            sequence, label = generate_valid_read(
+                segments_order, segments_patterns,
+                length_range, transcriptome_records
+            )
 
-        sequence, label = introduce_errors_with_labels_context(
-            sequence, label, mismatch_rate, insertion_rate,
-            deletion_rate, polyT_error_rate, max_insertions
-        )
-        reads.append(sequence)
-        labels.append(label)
+        # Add both orientations BEFORE adding noise
+        read_pairs = [(sequence, label)]
+
+        if rc:
+            rc_seq = reverse_complement(sequence)
+            rc_lbl = reverse_labels(label)
+            read_pairs.append((rc_seq, rc_lbl))
+
+        # Introduce noise to each orientation
+        for seq, lbl in read_pairs:
+            seq_err, lbl_err = introduce_errors_with_labels_context(
+                seq, lbl, mismatch_rate, insertion_rate,
+                deletion_rate, polyT_error_rate, max_insertions
+            )
+            reads.append(seq_err)
+            labels.append(lbl_err)
 
     return reads, labels
 
-############## multiprocessing ##############
+# ############## multiprocessing ##############
 
 
 def simulate_dynamic_batch_complete_wrapper(args):
     return simulate_dynamic_batch_complete(*args)
 
-############## main generator ##############
+# ############## main generator ##############
 
 
-def generate_training_reads(num_reads, mismatch_rate,
-                            insertion_rate, deletion_rate,
-                            polyT_error_rate, max_insertions,
-                            segments_order, segments_patterns,
-                            length_range, num_processes, rc,
-                            transcriptome_records,
-                            invalid_fraction):
-
+def generate_training_reads(
+    num_reads, mismatch_rate, insertion_rate, deletion_rate,
+    polyT_error_rate, max_insertions,
+    segments_order, segments_patterns,
+    length_range, num_processes, rc,
+    transcriptome_records, invalid_fraction
+):
     args_complete = (
         num_reads, length_range, mismatch_rate, insertion_rate, deletion_rate,
-        polyT_error_rate, max_insertions, segments_order, segments_patterns,
-        transcriptome_records, invalid_fraction
+        polyT_error_rate, max_insertions,
+        segments_order, segments_patterns,
+        transcriptome_records, invalid_fraction, rc
     )
 
+    # Parallel or single-thread execution
     if num_processes > 1:
         with Pool(processes=num_processes) as pool:
-            complete_results = pool.map(simulate_dynamic_batch_complete_wrapper,
-                                        [args_complete])
+            complete_results = pool.map(
+                simulate_dynamic_batch_complete_wrapper, [args_complete]
+            )
             pool.close()
     else:
         complete_results = [simulate_dynamic_batch_complete_wrapper(args_complete)]
@@ -239,11 +258,5 @@ def generate_training_reads(num_reads, mismatch_rate,
     for local_reads, local_labels in complete_results:
         reads.extend(local_reads)
         labels.extend(local_labels)
-
-    if rc:
-        reverse_complement_reads = [reverse_complement(read) for read in reads]
-        reverse_complement_labels = [reverse_labels(label) for label in labels]
-        reads.extend(reverse_complement_reads)
-        labels.extend(reverse_complement_labels)
 
     return reads, labels
