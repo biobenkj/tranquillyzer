@@ -935,7 +935,6 @@ def simulate_data(model_name: str,
             
             # Read the custom file directly
             try:
-                import pandas as pd
                 df = pd.read_csv(acc_priors, sep='\t', comment='#')
                 model_df = df[df['model_name'] == model_name].copy()
                 
@@ -956,7 +955,7 @@ def simulate_data(model_name: str,
                         frequencies = [f / freq_sum for f in frequencies]
                     
                     acc_priors_loaded = (sequences, frequencies)
-                    logger.info(f"✅ Loaded {len(sequences)} ACC variants from {acc_priors}")
+                    logger.info(f"Loaded {len(sequences)} ACC variants from {acc_priors}")
             except Exception as e:
                 logger.error(f"Error loading ACC priors from {acc_priors}: {e}")
                 acc_priors_loaded = None
@@ -977,16 +976,16 @@ def simulate_data(model_name: str,
         
         if invalid_seqs:
             logger.warning(
-                f"⚠️  Found {len(invalid_seqs)} ACC sequences not matching "
+                f"Found {len(invalid_seqs)} ACC sequences not matching "
                 f"IUPAC pattern '{acc_pattern}': {invalid_seqs[:3]}"
             )
             logger.warning("Falling back to random IUPAC expansion for ACC")
             acc_priors_loaded = None
         else:
-            logger.info(f"✅ Validated {len(valid_seqs)} ACC prior sequences")
-            logger.info(f"   Using empirical ACC distribution from priors file")
+            logger.info(f"Validated {len(valid_seqs)} ACC prior sequences")
+            logger.info(f"Using empirical ACC distribution from priors file")
     elif 'ACC' in seq_order and acc_priors_loaded is None:
-        logger.info("ℹ️  No ACC priors found. Using uniform IUPAC expansion")
+        logger.info("No ACC priors found. Using uniform IUPAC expansion")
     # ======================================================
 
     if transcriptome:
@@ -1151,7 +1150,6 @@ def train_model(model_name: str,
             
             # Read the custom file directly
             try:
-                import pandas as pd
                 df = pd.read_csv(acc_priors, sep='\t', comment='#')
                 model_df = df[df['model_name'] == model_name].copy()
                 
@@ -1172,7 +1170,7 @@ def train_model(model_name: str,
                         frequencies = [f / freq_sum for f in frequencies]
                     
                     acc_priors_loaded = (sequences, frequencies)
-                    logger.info(f"✅ Loaded {len(sequences)} ACC variants from {acc_priors}")
+                    logger.info(f"Loaded {len(sequences)} ACC variants from {acc_priors}")
             except Exception as e:
                 logger.error(f"Error loading ACC priors from {acc_priors}: {e}")
                 acc_priors_loaded = None
@@ -1194,15 +1192,15 @@ def train_model(model_name: str,
         
         if invalid_seqs:
             logger.warning(
-                f"⚠️  Found {len(invalid_seqs)} ACC sequences not matching "
+                f"Found {len(invalid_seqs)} ACC sequences not matching "
                 f"IUPAC pattern '{acc_pattern}'"
             )
             logger.warning("Falling back to random IUPAC expansion for ACC in validation data")
             acc_priors_loaded = None
         else:
-            logger.info(f"✅ Using ACC priors for validation data generation")
+            logger.info(f"Using ACC priors for validation data generation")
     elif 'ACC' in seq_order and acc_priors_loaded is None:
-        logger.info("ℹ️  No ACC priors found. Using uniform IUPAC expansion for validation")
+        logger.info("No ACC priors found. Using uniform IUPAC expansion for validation")
     # ===============================================================
 
     validation_segment_order = ["cDNA"]
