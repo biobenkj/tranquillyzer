@@ -219,7 +219,7 @@ def visualize(output_dir: str,
     utils_dir = os.path.join(base_dir, "utils")
     utils_dir = os.path.abspath(utils_dir)
 
-    seq_order, sequences, barcodes, UMIs = seq_orders(
+    seq_order, sequences, barcodes, UMIs, strand = seq_orders(
         os.path.join(utils_dir, "seq_orders.tsv"),
         model_name
     )
@@ -423,7 +423,7 @@ def annotate_reads(
         with open(f"{models_dir}/{model_name}_lbl_bin.pkl", "rb") as f:
             label_binarizer = pickle.load(f)
 
-    seq_order, sequences, barcodes, UMIs = seq_orders(f"{utils_dir}/seq_orders.tsv", model_name)
+    seq_order, sequences, barcodes, UMIs, strand = seq_orders(f"{utils_dir}/seq_orders.tsv", model_name)
     whitelist_df = pd.read_csv(whitelist_file, sep='\t')
     num_labels = len(seq_order)
 
@@ -912,7 +912,7 @@ def simulate_data(model_name: str,
     utils_dir = os.path.join(base_dir, "utils")
     utils_dir = os.path.abspath(utils_dir)
 
-    seq_order, sequences, barcodes, UMIs = seq_orders(
+    seq_order, sequences, barcodes, UMIs, strand = seq_orders(
         f"{utils_dir}/training_seq_orders.tsv", model_name
         )
     seq_order_dict = {}
@@ -1127,7 +1127,7 @@ def train_model(model_name: str,
 
     length_range = (min_cDNA, max_cDNA)
 
-    seq_order, sequences, barcodes, UMIs = seq_orders(
+    seq_order, sequences, barcodes, UMIs, strand = seq_orders(
         f"{utils_dir}/training_seq_orders.tsv", model_name
         )
 
