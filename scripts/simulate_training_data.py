@@ -62,8 +62,8 @@ def load_acc_priors(utils_dir, model_name):
             logger.error("Found empty or NaN ACC sequences in priors file")
             return None, None
 
-        logger.info(f"✅ Loaded {len(sequences)} ACC variants for model '{model_name}'")
-        logger.info(f"   Sequences: {sequences[:5]}{'...' if len(sequences) > 5 else ''}")
+        logger.info(f"Loaded {len(sequences)} ACC variants for model '{model_name}'")
+        logger.info(f"Sequences: {sequences[:5]}{'...' if len(sequences) > 5 else ''}")
         logger.info(
             f"   Top frequencies: {[f'{f:.3f}' for f in frequencies[:5]]}"
             f"{'...' if len(frequencies) > 5 else ''}"
