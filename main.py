@@ -896,7 +896,11 @@ def simulate_data(model_name: str,
                       "will contain twice the number of user-specified reads"
                       )),
                   transcriptome: str = typer.Option(None, help="transcriptome fasta file"),
-                  invalid_fraction: float = typer.Option(0.3, help="fraction of invalid reads to generate")):
+                  invalid_fraction: float = typer.Option(0.3, help="fraction of invalid reads to generate"),
+                  acc_priors: str = typer.Option(None, help=(
+                      "path to ACC priors TSV file. Use 'none' to disable, "
+                      "or omit to auto-detect utils/acc_priors.tsv"
+                      ))):
 
     reads = []
     labels = []
@@ -913,16 +917,60 @@ def simulate_data(model_name: str,
         )
     seq_order_dict = {}
 
-    # ========== NEW: Load ACC priors if available ==========
-    logger.info("Checking for ACC priors...")
-    acc_priors = load_acc_priors(utils_dir, model_name)
+    # ========== NEW: Load ACC priors with custom path support ==========
+    acc_priors_loaded = None
+    
+    # Handle --acc-priors option
+    if acc_priors is not None:
+        if acc_priors.lower() in ['none', 'skip', 'false', 'no']:
+            logger.info("ACC priors explicitly disabled via --acc-priors option")
+            acc_priors_loaded = None
+        else:
+            # Custom path provided
+            if not os.path.exists(acc_priors):
+                logger.error(f"ACC priors file not found: {acc_priors}")
+                raise FileNotFoundError(f"ACC priors file not found: {acc_priors}")
+            
+            logger.info(f"Loading ACC priors from custom path: {acc_priors}")
+            
+            # Read the custom file directly
+            try:
+                import pandas as pd
+                df = pd.read_csv(acc_priors, sep='\t', comment='#')
+                model_df = df[df['model_name'] == model_name].copy()
+                
+                if model_df.empty:
+                    logger.warning(f"No ACC priors found for model '{model_name}' in {acc_priors}")
+                    acc_priors_loaded = None
+                elif (model_df['sequence'] == 'N/A').any():
+                    logger.info(f"Model '{model_name}' configured to skip ACC priors in {acc_priors}")
+                    acc_priors_loaded = None
+                else:
+                    sequences = model_df['sequence'].tolist()
+                    frequencies = model_df['frequency'].tolist()
+                    
+                    # Normalize frequencies if needed
+                    freq_sum = sum(frequencies)
+                    if abs(freq_sum - 1.0) > 0.01:
+                        logger.warning(f"ACC frequencies sum to {freq_sum:.4f}, normalizing to 1.0")
+                        frequencies = [f / freq_sum for f in frequencies]
+                    
+                    acc_priors_loaded = (sequences, frequencies)
+                    logger.info(f"✅ Loaded {len(sequences)} ACC variants from {acc_priors}")
+            except Exception as e:
+                logger.error(f"Error loading ACC priors from {acc_priors}: {e}")
+                acc_priors_loaded = None
+    else:
+        # Auto-detect in default location
+        logger.info("Checking for ACC priors in utils/acc_priors.tsv...")
+        acc_priors_loaded = load_acc_priors(utils_dir, model_name)
     
     # Validate ACC priors against the IUPAC definition if both exist
-    if 'ACC' in seq_order and acc_priors is not None:
+    if 'ACC' in seq_order and acc_priors_loaded is not None:
         acc_idx = seq_order.index('ACC')
         acc_pattern = sequences[acc_idx]
         
-        acc_sequences, acc_frequencies = acc_priors
+        acc_sequences, acc_frequencies = acc_priors_loaded
         valid_seqs, invalid_seqs = validate_acc_against_iupac(
             acc_sequences, acc_pattern
         )
@@ -933,11 +981,11 @@ def simulate_data(model_name: str,
                 f"IUPAC pattern '{acc_pattern}': {invalid_seqs[:3]}"
             )
             logger.warning("Falling back to random IUPAC expansion for ACC")
-            acc_priors = None
+            acc_priors_loaded = None
         else:
             logger.info(f"✅ Validated {len(valid_seqs)} ACC prior sequences")
-            logger.info(f"   Using empirical ACC distribution from acc_priors.tsv")
-    elif 'ACC' in seq_order and acc_priors is None:
+            logger.info(f"   Using empirical ACC distribution from priors file")
+    elif 'ACC' in seq_order and acc_priors_loaded is None:
         logger.info("ℹ️  No ACC priors found. Using uniform IUPAC expansion")
     # ======================================================
 
@@ -979,11 +1027,11 @@ def simulate_data(model_name: str,
                                             length_range, threads, rc,
                                             transcriptome_records,
                                             invalid_fraction,
-                                            acc_priors=acc_priors)  # Pass ACC priors
+                                            acc_priors=acc_priors_loaded)  # Pass ACC priors
     logger.info("Finished generating reads")
 
     # ========== NEW: Report ACC distribution if used ==========
-    if 'ACC' in seq_order and acc_priors is not None:
+    if 'ACC' in seq_order and acc_priors_loaded is not None:
         from collections import Counter
         
         # Extract ACC sequences from generated data
@@ -1039,7 +1087,11 @@ def train_model(model_name: str,
                     "contain twice the number of user-specified reads"
                     )),
                 transcriptome: str = typer.Option(None, help="transcriptome fasta file"),
-                invalid_fraction: float = typer.Option(0.3, help="fraction of invalid reads to generate")):
+                invalid_fraction: float = typer.Option(0.3, help="fraction of invalid reads to generate"),
+                acc_priors: str = typer.Option(None, help=(
+                    "path to ACC priors TSV file for validation data. Use 'none' to disable, "
+                    "or omit to auto-detect utils/acc_priors.tsv"
+                    ))):
 
     base_dir = os.path.dirname(os.path.abspath(__file__))
     models_dir = os.path.join(base_dir, "models")
@@ -1081,16 +1133,61 @@ def train_model(model_name: str,
 
     print(f"seq orders: {seq_order}")
 
-    # ========== NEW: Load ACC priors for validation data ==========
-    logger.info("Checking for ACC priors for validation data generation...")
-    acc_priors = load_acc_priors(utils_dir, model_name)
+    # ========== NEW: Load ACC priors for validation data with custom path support ==========
+    acc_priors_loaded = None
+    
+    # Handle --acc-priors option
+    if acc_priors is not None:
+        if acc_priors.lower() in ['none', 'skip', 'false', 'no']:
+            logger.info("ACC priors explicitly disabled via --acc-priors option for validation data")
+            acc_priors_loaded = None
+        else:
+            # Custom path provided
+            if not os.path.exists(acc_priors):
+                logger.error(f"ACC priors file not found: {acc_priors}")
+                raise FileNotFoundError(f"ACC priors file not found: {acc_priors}")
+            
+            logger.info(f"Loading ACC priors for validation from custom path: {acc_priors}")
+            
+            # Read the custom file directly
+            try:
+                import pandas as pd
+                df = pd.read_csv(acc_priors, sep='\t', comment='#')
+                model_df = df[df['model_name'] == model_name].copy()
+                
+                if model_df.empty:
+                    logger.warning(f"No ACC priors found for model '{model_name}' in {acc_priors}")
+                    acc_priors_loaded = None
+                elif (model_df['sequence'] == 'N/A').any():
+                    logger.info(f"Model '{model_name}' configured to skip ACC priors in {acc_priors}")
+                    acc_priors_loaded = None
+                else:
+                    sequences = model_df['sequence'].tolist()
+                    frequencies = model_df['frequency'].tolist()
+                    
+                    # Normalize frequencies if needed
+                    freq_sum = sum(frequencies)
+                    if abs(freq_sum - 1.0) > 0.01:
+                        logger.warning(f"ACC frequencies sum to {freq_sum:.4f}, normalizing to 1.0")
+                        frequencies = [f / freq_sum for f in frequencies]
+                    
+                    acc_priors_loaded = (sequences, frequencies)
+                    logger.info(f"✅ Loaded {len(sequences)} ACC variants from {acc_priors}")
+            except Exception as e:
+                logger.error(f"Error loading ACC priors from {acc_priors}: {e}")
+                acc_priors_loaded = None
+    else:
+        # Auto-detect in default location
+        logger.info("Checking for ACC priors for validation data generation...")
+        acc_priors_loaded = load_acc_priors(utils_dir, model_name)
+    
     
     # Validate ACC priors against the IUPAC definition if both exist
-    if 'ACC' in seq_order and acc_priors is not None:
+    if 'ACC' in seq_order and acc_priors_loaded is not None:
         acc_idx = seq_order.index('ACC')
         acc_pattern = sequences[acc_idx]
         
-        acc_sequences, acc_frequencies = acc_priors
+        acc_sequences, acc_frequencies = acc_priors_loaded
         valid_seqs, invalid_seqs = validate_acc_against_iupac(
             acc_sequences, acc_pattern
         )
@@ -1101,10 +1198,10 @@ def train_model(model_name: str,
                 f"IUPAC pattern '{acc_pattern}'"
             )
             logger.warning("Falling back to random IUPAC expansion for ACC in validation data")
-            acc_priors = None
+            acc_priors_loaded = None
         else:
             logger.info(f"✅ Using ACC priors for validation data generation")
-    elif 'ACC' in seq_order and acc_priors is None:
+    elif 'ACC' in seq_order and acc_priors_loaded is None:
         logger.info("ℹ️  No ACC priors found. Using uniform IUPAC expansion for validation")
     # ===============================================================
 
@@ -1139,7 +1236,7 @@ def train_model(model_name: str,
         polyT_error_rate, max_insertions, validation_segment_order,
         validation_segment_pattern, length_range, threads, rc,
         transcriptome_records, invalid_fraction,
-        acc_priors=acc_priors)  # Pass ACC priors
+        acc_priors=acc_priors_loaded)  # Pass ACC priors
 
     palette = ['red', 'blue', 'green', 'purple', 'pink',
                'cyan', 'magenta', 'orange', 'brown']
