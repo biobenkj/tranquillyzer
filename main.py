@@ -40,7 +40,11 @@ from scripts.train_new_model import (
     ont_read_annotator,
 )
 from scripts.visualize_annot import save_plots_to_pdf
-from scripts.simulate_training_data import generate_training_reads
+from scripts.simulate_training_data import (
+    generate_training_reads,
+    load_acc_priors,
+    validate_acc_against_iupac
+)
 from scripts.demultiplex import generate_demux_stats_pdf
 from scripts.plot_read_len_distr import plot_read_len_distr
 from scripts.trained_models import trained_models, seq_orders
@@ -215,7 +219,7 @@ def visualize(output_dir: str,
     utils_dir = os.path.join(base_dir, "utils")
     utils_dir = os.path.abspath(utils_dir)
 
-    seq_order, sequences, barcodes, UMIs, strand = seq_orders(
+    seq_order, sequences, barcodes, UMIs = seq_orders(
         os.path.join(utils_dir, "seq_orders.tsv"),
         model_name
     )
@@ -419,7 +423,7 @@ def annotate_reads(
         with open(f"{models_dir}/{model_name}_lbl_bin.pkl", "rb") as f:
             label_binarizer = pickle.load(f)
 
-    seq_order, sequences, barcodes, UMIs, strand = seq_orders(f"{utils_dir}/seq_orders.tsv", model_name)
+    seq_order, sequences, barcodes, UMIs = seq_orders(f"{utils_dir}/seq_orders.tsv", model_name)
     whitelist_df = pd.read_csv(whitelist_file, sep='\t')
     num_labels = len(seq_order)
 
@@ -470,7 +474,7 @@ def annotate_reads(
     invalid_file_lock = FileLock(invalid_output_file + ".lock")
     valid_file_lock = FileLock(valid_output_file + ".lock")
 
-    def post_process_worker(task_queue, strand, output_fmt, count, header_track, result_queue):
+    def post_process_worker(task_queue, output_fmt, count, header_track, result_queue):
         """Worker function for processing reads and returning results."""
         while True:
             try:
@@ -493,23 +497,15 @@ def annotate_reads(
                     add_header = header_track.value == 0
 
                 result = post_process_reads(
-                    reads, read_names, strand, output_fmt,
-                    base_qualities, model_type,
+                    reads, read_names, output_fmt, base_qualities, model_type, 
                     pass_num, model_path_w_CRF,
-                    predictions, label_binarizer,
-                    local_cumulative_stats,
-                    read_lengths, seq_order,
-                    add_header, bin_name, output_dir,
-                    invalid_output_file,
-                    invalid_file_lock, valid_output_file,
-                    valid_file_lock, barcodes,
-                    whitelist_df, whitelist_dict,
-                    bc_lv_threshold, checkpoint_file,
-                    1, local_match_counter,
-                    local_cell_counter, demuxed_fasta,
-                    demuxed_fasta_lock,
-                    ambiguous_fasta,
-                    ambiguous_fasta_lock, threads
+                    predictions, label_binarizer, local_cumulative_stats,
+                    read_lengths, seq_order, add_header, bin_name, output_dir,
+                    invalid_output_file, invalid_file_lock, valid_output_file,
+                    valid_file_lock, barcodes, whitelist_df, whitelist_dict,
+                    bc_lv_threshold, checkpoint_file, 1, local_match_counter,
+                    local_cell_counter, demuxed_fasta, demuxed_fasta_lock,
+                    ambiguous_fasta, ambiguous_fasta_lock, threads
                 )
 
                 if result:
@@ -565,8 +561,7 @@ def annotate_reads(
         logging.info(f"[Memory] RSS: {psutil.Process().memory_info().rss / 1e6:.2f} MB")
 
         workers = [mp.Process(target=post_process_worker,
-                              args=(task_queue, strand, 
-                                    output_fmt, count,
+                              args=(task_queue, output_fmt, count,
                                     header_track,
                                     result_queue)) for _ in range(num_workers)]
 
@@ -632,8 +627,7 @@ def annotate_reads(
                 header_track.value = 0
 
             workers = [mp.Process(target=post_process_worker,
-                                  args=(task_queue, strand,
-                                        output_fmt, count,
+                                  args=(task_queue, output_fmt, count,
                                         header_track,
                                         result_queue)) for _ in range(num_workers)]
 
@@ -675,8 +669,7 @@ def annotate_reads(
         pass_num = 1
 
         workers = [mp.Process(target=post_process_worker,
-                              args=(task_queue, strand,
-                                    output_fmt, count,
+                              args=(task_queue, output_fmt, count,
                                     header_track,
                                     result_queue)) for _ in range(num_workers)]
 
@@ -915,10 +908,38 @@ def simulate_data(model_name: str,
     utils_dir = os.path.join(base_dir, "utils")
     utils_dir = os.path.abspath(utils_dir)
 
-    seq_order, sequences, barcodes, UMIs, strand = seq_orders(
+    seq_order, sequences, barcodes, UMIs = seq_orders(
         f"{utils_dir}/training_seq_orders.tsv", model_name
         )
     seq_order_dict = {}
+
+    # ========== NEW: Load ACC priors if available ==========
+    logger.info("Checking for ACC priors...")
+    acc_priors = load_acc_priors(utils_dir, model_name)
+    
+    # Validate ACC priors against the IUPAC definition if both exist
+    if 'ACC' in seq_order and acc_priors is not None:
+        acc_idx = seq_order.index('ACC')
+        acc_pattern = sequences[acc_idx]
+        
+        acc_sequences, acc_frequencies = acc_priors
+        valid_seqs, invalid_seqs = validate_acc_against_iupac(
+            acc_sequences, acc_pattern
+        )
+        
+        if invalid_seqs:
+            logger.warning(
+                f"⚠️  Found {len(invalid_seqs)} ACC sequences not matching "
+                f"IUPAC pattern '{acc_pattern}': {invalid_seqs[:3]}"
+            )
+            logger.warning("Falling back to random IUPAC expansion for ACC")
+            acc_priors = None
+        else:
+            logger.info(f"✅ Validated {len(valid_seqs)} ACC prior sequences")
+            logger.info(f"   Using empirical ACC distribution from acc_priors.tsv")
+    elif 'ACC' in seq_order and acc_priors is None:
+        logger.info("ℹ️  No ACC priors found. Using uniform IUPAC expansion")
+    # ======================================================
 
     if transcriptome:
         logger.info("Loading transcriptome fasta file")
@@ -957,8 +978,34 @@ def simulate_data(model_name: str,
                                             training_segment_pattern,
                                             length_range, threads, rc,
                                             transcriptome_records,
-                                            invalid_fraction)
+                                            invalid_fraction,
+                                            acc_priors=acc_priors)  # Pass ACC priors
     logger.info("Finished generating reads")
+
+    # ========== NEW: Report ACC distribution if used ==========
+    if 'ACC' in seq_order and acc_priors is not None:
+        from collections import Counter
+        
+        # Extract ACC sequences from generated data
+        acc_sequences_generated = []
+        for read, label in zip(reads, labels):
+            acc_positions = [i for i, l in enumerate(label) if l == 'ACC']
+            if acc_positions:
+                acc_start = min(acc_positions)
+                acc_end = max(acc_positions) + 1
+                acc_seq = read[acc_start:acc_end]
+                acc_sequences_generated.append(acc_seq)
+        
+        if acc_sequences_generated:
+            acc_counts = Counter(acc_sequences_generated)
+            logger.info(f"\n{'='*60}")
+            logger.info("Generated ACC Distribution (Top 10):")
+            logger.info(f"{'='*60}")
+            for seq, count in acc_counts.most_common(10):
+                freq = count / len(acc_sequences_generated)
+                logger.info(f"  {seq}: {count:>6} ({freq*100:>5.2f}%)")
+            logger.info(f"{'='*60}\n")
+    # =========================================================
 
     os.makedirs(f'{output_dir}/simulated_data', exist_ok=True)
 
@@ -1028,11 +1075,38 @@ def train_model(model_name: str,
 
     length_range = (min_cDNA, max_cDNA)
 
-    seq_order, sequences, barcodes, UMIs, strand = seq_orders(
+    seq_order, sequences, barcodes, UMIs = seq_orders(
         f"{utils_dir}/training_seq_orders.tsv", model_name
         )
 
     print(f"seq orders: {seq_order}")
+
+    # ========== NEW: Load ACC priors for validation data ==========
+    logger.info("Checking for ACC priors for validation data generation...")
+    acc_priors = load_acc_priors(utils_dir, model_name)
+    
+    # Validate ACC priors against the IUPAC definition if both exist
+    if 'ACC' in seq_order and acc_priors is not None:
+        acc_idx = seq_order.index('ACC')
+        acc_pattern = sequences[acc_idx]
+        
+        acc_sequences, acc_frequencies = acc_priors
+        valid_seqs, invalid_seqs = validate_acc_against_iupac(
+            acc_sequences, acc_pattern
+        )
+        
+        if invalid_seqs:
+            logger.warning(
+                f"⚠️  Found {len(invalid_seqs)} ACC sequences not matching "
+                f"IUPAC pattern '{acc_pattern}'"
+            )
+            logger.warning("Falling back to random IUPAC expansion for ACC in validation data")
+            acc_priors = None
+        else:
+            logger.info(f"✅ Using ACC priors for validation data generation")
+    elif 'ACC' in seq_order and acc_priors is None:
+        logger.info("ℹ️  No ACC priors found. Using uniform IUPAC expansion for validation")
+    # ===============================================================
 
     validation_segment_order = ["cDNA"]
     validation_segment_order.extend(seq_order)
@@ -1064,7 +1138,8 @@ def train_model(model_name: str,
         num_val_reads, mismatch_rate, insertion_rate, deletion_rate,
         polyT_error_rate, max_insertions, validation_segment_order,
         validation_segment_pattern, length_range, threads, rc,
-        transcriptome_records, invalid_fraction)
+        transcriptome_records, invalid_fraction,
+        acc_priors=acc_priors)  # Pass ACC priors
 
     palette = ['red', 'blue', 'green', 'purple', 'pink',
                'cyan', 'magenta', 'orange', 'brown']
