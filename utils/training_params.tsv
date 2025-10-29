@@ -14,4 +14,4 @@ attention_heads	0	0	0
 dropout_rate	0.35	0.35	0.35
 regularization	0.01	0.01	0.01
 learning_rate	0.001	0.001	0.001
-epochs	10	5	1
+epochs	5	5	1
