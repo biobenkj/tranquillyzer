@@ -128,7 +128,7 @@ To enhance the efficiency of the annotation process, tranquillyzer organizes raw
 
 Example usage:
 
-```console
+```bash
 tranquillyzer preprocess /path/to/RAW_DATA/directory /path/to/OUTPUT/directory \
     --threads CPU_THREADS
 ```
@@ -140,7 +140,7 @@ As an initial quality control metric, users may wish to visualize the read lengt
 
 Example uage:
 
-```console
+```bash
 tranquillyzer readlengthdist /path/to/OUTPUT/directory
 ```
 
@@ -176,7 +176,7 @@ The command `tranquillyzer availablemodels` displays available models in the mod
 
 Example usage:
 
-```console
+```bash
 tranquillyzer annotate-reads /path/to/OUTPUT/directory /path/to/BARCODE_WHITELIST \
     --model-name MODEL_NAME --model-type CRF \
     --chunk-size 100000 --threads CPU_THREADS
@@ -184,14 +184,14 @@ tranquillyzer annotate-reads /path/to/OUTPUT/directory /path/to/BARCODE_WHITELIS
 
 ### <ins>Alignment</ins>
 
-```console
+```bash
 tranquilizer align INPUT_DIR REFERENCE OUTPUT_DIR \
     --preset MINIMAP2_PRESET --threads CPU_THREADS
 ```
 
 ### <ins>Duplicate Marking</ins>
 
-```console
+```bash
 tranquilizer dedup INPUT_DIR \
     --lv-threshold EDIT_DISTANCE_THRESHOLD \
     --threads CPU_THREADS
@@ -203,14 +203,14 @@ Annotated reads can be inspected independently of the `annotate-reads` processâ€
 
 Example usage:
 
-```console
+```bash
 tranquillyzer visualize /path/to/OUTPUT/directory \
     --output-file OUTPUT_FILE_NAME \
     --model-name MODEL_NAME --model-type CRF \
     --read-names READ_NAME_1,READ_NAME_2,READ_NAME3 \
     --threads CPU_THREADS
 ```
-```console
+```bash
 tranquillyzer visualize /path/to/OUTPUT/directory \
     --output-file OUTPUT_FILE_NAME \
     --model-name MODEL_NAME --model-type CRF \
@@ -221,7 +221,7 @@ tranquillyzer visualize /path/to/OUTPUT/directory \
 
 In order to train a new model,  simulated training data that mimics the library structure needs to be generated. This is accomplished using the `simulate-data` command, which creates synthetic reads based on a user-defined label schema and error profile. The schema can be defined in a tab-delimited text file, specifying the order and sequences of structural elements (e.g., adapters, barcodes, UMIs, polyA/T tails, cDNA regions). Check the training_seq_orders files in the utils/ directory for examples. The first column specifies the model name, the second column defines the label sequence (using predefined labels like ADAPTER, CBC, UMI, POLYA, POLYT, cDNA), and the third column provides the exact sequences for fixed elements. Variable elements like CBCs and UMIs are represented by 'N's, with their lengths determined by the number of 'N's.
 
-```console
+```bash
 tranquillyzer simulate-data MODEL_NAME \
     /path/to/OUTPUT/directory \
     --num-reads NUM_READS \
