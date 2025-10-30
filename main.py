@@ -1154,13 +1154,20 @@ def train_model(model_name: str,
 
         with strategy.scope():
             model = ont_read_annotator(
-                vocab_size, embedding_dim, num_labels,
-                conv_layers=conv_layers, conv_filters=conv_filters,
+                vocab_size,
+                embedding_dim,
+                num_labels,
+                conv_layers=conv_layers,
+                conv_filters=conv_filters,
                 conv_kernel_size=conv_kernel_size,
-                lstm_layers=lstm_layers, lstm_units=lstm_units,
-                bidirectional=bidirectional, crf_layer=crf_layer,
-                attention_heads=attention_heads, dropout_rate=dropout_rate,
-                regularization=regularization, learning_rate=learning_rate
+                lstm_layers=lstm_layers,
+                lstm_units=lstm_units,
+                bidirectional=bidirectional,
+                crf_layer=crf_layer,
+                attention_heads=attention_heads,
+                dropout_rate=dropout_rate,
+                regularization=regularization,
+                learning_rate=learning_rate
             )
 
         logger.info(f"Training {model_name}_{idx} with parameters: {params}")
@@ -1171,25 +1178,38 @@ def train_model(model_name: str,
 
             reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(
                 monitor='val_val_accuracy',
-                factor=0.5, patience=1,
-                min_lr=1e-5, mode='max'
+                factor=0.5,
+                patience=1,
+                min_lr=1e-5,
+                mode='max'
             )
             early_stopping = tf.keras.callbacks.EarlyStopping(
-                monitor="val_loss_val", patience=1, restore_best_weights=True
+                monitor="val_loss_val", 
+                patience=1, 
+                restore_best_weights=True
                 )
 
             history = model.fit(
-                train_gen, validation_data=val_gen,
-                epochs=epochs, callbacks=[early_stopping, reduce_lr]
+                train_gen,
+                validation_data=val_gen,
+                epochs=epochs,
+                callbacks=[early_stopping, reduce_lr],
+                workers=0,
+                use_multiprocessing=False,
                 )
             model.save_weights(f"{output_dir}/{model_name}_{idx}/{model_name}_{idx}.h5")
         else:
             reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(
-                monitor='val_accuracy', factor=0.5, patience=1,
-                min_lr=1e-5, mode='max'
+                monitor='val_accuracy',
+                factor=0.5,
+                patience=1,
+                min_lr=1e-5,
+                mode='max'
                 )
             early_stopping = tf.keras.callbacks.EarlyStopping(
-                monitor="val_loss", patience=3, restore_best_weights=True
+                monitor="val_loss",
+                patience=3,
+                restore_best_weights=True
             )
 
             history = model.fit(
@@ -1205,9 +1225,14 @@ def train_model(model_name: str,
         encoded_data = preprocess_sequences(validation_reads)
         predictions = annotate_new_data(encoded_data, model)
         annotated_reads = extract_annotated_full_length_seqs(
-            validation_reads, predictions, crf_layer,
-            validation_read_lengths, label_binarizer,
-            seq_order, barcodes, n_jobs=1
+            validation_reads,
+            predictions,
+            crf_layer,
+            validation_read_lengths,
+            label_binarizer,
+            seq_order,
+            barcodes,
+            n_jobs=1
         )
         save_plots_to_pdf(validation_reads, annotated_reads,
                           validation_read_names,

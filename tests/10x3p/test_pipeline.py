@@ -155,3 +155,14 @@ def test_annotate_reads_w_base_qual():
         "--chunk-size", 100000,
         "--threads", THREADS,
     ])
+
+@pytest.mark.order(11)
+def test_train_model():
+    run_cmd([
+        "tranquillyzer",
+        "train-model",
+        "10x3p_sc_ont",
+        SIM_DIR,
+        "--threads",
+        THREADS,
+    ])
