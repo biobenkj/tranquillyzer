@@ -1,0 +1,37 @@
+project:
+  type: website
+  project:
+    host: 0.0.0.0
+    port: 4000
+
+website:
+  title: "Tranquillyzer Documentation"
+  description: "Documentation site for Tranquillyzer, a deep-learning framework for processing long-read scRNA-seq data"
+  page-footer:
+    left: "Copyright 2025, The Shen Lab at Van Andel Institute"
+    right:
+      - icon: github
+        href: https://github.com/huishenlab/tranquillyzer
+  navbar:
+    search: true
+    pinned: true
+    left:
+      - href: index.qmd
+        text: Home
+      - about.qmd
+    right:
+      - icon: github
+        href: https://github.com/huishenlab/tranquillyzer
+
+format:
+  html:
+    theme: lumen
+    highlight-style: solarized
+    css: styles.css
+    toc: true
+    code-copy: true
+    code-block-border-left: "#000000"
+    code-block-bg: "#F3F3F3"
+
+
+
