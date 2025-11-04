@@ -15,7 +15,10 @@ website:
     left:
       - href: index.qmd
         text: Home
-      - about.qmd
+      - href: webpages/install.qmd
+        text: Install
+      - href: webpages/quick_start.qmd
+        text: Quick Start
     right:
       - icon: github
         href: https://github.com/huishenlab/tranquillyzer
