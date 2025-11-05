@@ -1,5 +1,5 @@
 ---
-title: "Tranquillyzer Documentation"
+title: "Tranquillyzer Overview"
 ---
 
 Tranquillyzer (<b>TRAN</b>script <b>QU</b>antification <b>I</b>n <b>L</b>ong reads-ana<b>LYZER</b>) is a flexible,
