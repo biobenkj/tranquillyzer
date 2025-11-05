@@ -19,6 +19,8 @@ website:
         text: Install
       - href: webpages/quick_start.qmd
         text: Quick Start
+      - href: webpages/usage.qmd
+        text: Usage
     right:
       - icon: github
         href: https://github.com/huishenlab/tranquillyzer
