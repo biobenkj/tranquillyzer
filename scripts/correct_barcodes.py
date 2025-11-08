@@ -178,7 +178,7 @@ def process_row(row, strand, barcode_columns,
     elif output_fmt == "fastq":
          batch_reads[corrected_barcode_seqs_str].append(
             (f"@{row['ReadName']}_{corrected_barcode_seqs_str}_{umi_sequence} cell_id:{cell_id}|Barcodes:{corrected_barcodes_str}|UMI:{umi_sequence}|orientation:{orientation}",
-            cDNA_sequence, row['base_qualities'])
+            cDNA_sequence, row['base_qualities'][int(row['cDNA_Starts']):int(row['cDNA_Ends'])])
         )
     return result, local_match_counts, local_cell_counts, batch_reads
 

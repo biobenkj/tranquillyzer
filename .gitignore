@@ -15,7 +15,7 @@ models/*
 
 # Ignore references and analysis files
 
-tests/references
+tests/references/
 tests/10x3p/*
 
 !tests/10x3p/test_pipeline.py

@@ -5,6 +5,7 @@ import json
 import typer
 import queue
 import psutil
+import pysam
 import resource
 import random
 import pickle
@@ -34,7 +35,14 @@ from sklearn.preprocessing import LabelBinarizer
 
 from tensorflow.keras.models import load_model
 from scripts.deduplicate import deduplication_parallel
-from scripts.annotate_new_data import calculate_total_rows
+from scripts.annotate_new_data import (
+    build_model,
+    annotate_new_data_parallel,
+    calculate_total_rows,
+    preprocess_sequences,
+    model_predictions,
+    estimate_average_read_length_from_bin,
+)
 from scripts.train_new_model import (
     DynamicPaddingDataGenerator,
     ont_read_annotator,
@@ -46,12 +54,7 @@ from scripts.plot_read_len_distr import plot_read_len_distr
 from scripts.trained_models import trained_models, seq_orders
 from scripts.correct_barcodes import generate_barcodes_stats_pdf
 from scripts.extract_annotated_seqs import extract_annotated_full_length_seqs
-from scripts.annotate_new_data import (
-    preprocess_sequences,
-    annotate_new_data,
-    model_predictions,
-    estimate_average_read_length_from_bin,
-)
+
 from scripts.preprocess_reads import (
     parallel_preprocess_data,
     find_sequence_files,
@@ -196,6 +199,29 @@ def visualize(output_dir: str,
                                     [red]CRF[/red] = [green]CNN-LSTM-CRF[/green]
                                     """)
                                     ] = "CRF",
+              gpu_mem: Annotated[
+                str, typer.Option(
+                    help="""
+                    Total memory of the GPU in GB.\n
+                    => If there's only one GPU or multiple-GPUs with same memory, 
+                    specify an integer\n
+                    => If there are mutliple GPUs with different memories,
+                    specify a comma-separated list (e.g., 8,16,32)\n
+                    => If nothing is specified and one or more GPUs are available, 
+                    12 GB will be used by default.\n
+                    """)
+                    ] = None,
+              target_tokens: Annotated[
+                int, typer.Option(help=
+                """Approximate token budget *per GPU replica* used to pick a safe batch size.\n
+                => A 'token' is one input position after padding (for DNA here: ~1 base = 1 token).\n
+                => Effective tokens per replica ≈ batch_size × padded_seq_len.\n
+                => Increase to try larger batches (more memory), decrease if you hit OOM.\n
+                => If running on CPU, this still guides batch size heuristics."""
+                )] = 1_200_000,
+              vram_headroom: float = typer.Option(0.35, help="Fraction of GPU memory to reserve as headroom"),
+              min_batch_size: int = typer.Option(1, help="Minimum batch size for model inference"),
+              max_batch_size: int = typer.Option(2000, help="Maximum batch size for model inference"),
               num_reads: int = typer.Option(
                   None,
                   help="Number of reads to randomly visualize from each Parquet file."
@@ -222,55 +248,28 @@ def visualize(output_dir: str,
 
     num_labels = len(seq_order)
     model_path_w_CRF = None
+    model_path = None
+
+    conv_filters = 256
 
     if model_type == "REG":
         model_path = os.path.join(models_dir, model_name + ".h5")
-        model = load_model(model_path)
         with open(os.path.join(models_dir, model_name + "_lbl_bin.pkl"), "rb") as f:
             label_binarizer = pickle.load(f)
     else:
         model_path_w_CRF = os.path.join(models_dir, model_name + "_w_CRF.h5")
-        model_params_json_path = model_path_w_CRF.replace(".h5", "_params.json")
-        with open(model_params_json_path) as f:
-            raw_params = json.load(f)
-
-        params = {
-            k: (
-                v.lower() == "true" if isinstance(v, str) and v.lower() in ["true", "false"]
-                else int(v) if isinstance(v, str) and v.isdigit()
-                else float(v) if isinstance(v, str) and v.replace('.', '', 1).isdigit()
-                else v
-                )
-                for k, v in raw_params.items()
-                }
-        model = ont_read_annotator(
-            vocab_size=params["vocab_size"],
-            embedding_dim=params["embedding_dim"],
-            num_labels=num_labels,
-            conv_layers=params["conv_layers"],
-            conv_filters=params["conv_filters"],
-            conv_kernel_size=params["conv_kernel_size"],
-            lstm_layers=params["lstm_layers"],
-            lstm_units=params["lstm_units"],
-            bidirectional=params["bidirectional"],
-            attention_heads=params["attention_heads"],
-            dropout_rate=params["dropout_rate"],
-            regularization=params["regularization"],
-            learning_rate=params["learning_rate"],
-            crf_layer=True  # Force CRF for this model
-            )
-        dummy_input = tf.zeros((1, 512), dtype=tf.int32)
-        _ = model(dummy_input)
-        model.load_weights(model_path_w_CRF)
         with open(os.path.join(models_dir,
-                               model_name + "_w_CRF_lbl_bin.pkl"), "rb") as f:
+                               model_name + "_w_CRF_lbl_bin.pkl"),
+                               "rb") as f:
             label_binarizer = pickle.load(f)
-
+    
+    model = build_model(model_path_w_CRF, model_path,
+                        conv_filters, num_labels, 
+                        strategy=None)
     palette = ['red', 'blue', 'green', 'purple', 'pink',
                'cyan', 'magenta', 'orange', 'brown']
     colors = {'random_s': 'black', 'random_e': 'black',
               'cDNA': 'gray', 'polyT': 'orange', 'polyA': 'orange'}
-
     i = 0
     for element in seq_order:
         if element not in ['random_s', 'random_e', 'cDNA', 'polyT', 'polyA']:
@@ -282,7 +281,6 @@ def visualize(output_dir: str,
                                    "full_length_pp_fa/read_index.parquet")
 
     os.makedirs(f"{output_dir}/plots", exist_ok=True)
-
     folder_path = os.path.join(output_dir, "full_length_pp_fa")
     pdf_filename = f'{output_dir}/plots/{output_file}.pdf'
 
@@ -352,14 +350,20 @@ def visualize(output_dir: str,
 
     # Perform annotation and plotting
     encoded_data = preprocess_sequences(selected_reads)
-    predictions = annotate_new_data(encoded_data, model)
+    predictions = annotate_new_data_parallel(encoded_data, model, 
+                                             max_batch_size,
+                                             min_batch=min_batch_size, 
+                                             strategy=None,)
     annotated_reads = extract_annotated_full_length_seqs(
             selected_reads, predictions, model_path_w_CRF,
             selected_read_lengths, label_binarizer, seq_order,
             barcodes, n_jobs=threads,
         )
-    save_plots_to_pdf(selected_reads, annotated_reads, selected_read_names,
-                      pdf_filename, colors, chars_per_line=150)
+    save_plots_to_pdf(selected_reads,
+                      annotated_reads,
+                      selected_read_names,
+                      pdf_filename, colors, 
+                      chars_per_line=150)
 
     usage = resource.getrusage(resource.RUSAGE_CHILDREN)
     max_rss_mb = usage.ru_maxrss / 1024 if os.uname().sysname == "Linux" else usage.ru_maxrss  # Linux gives KB
@@ -391,16 +395,33 @@ def annotate_reads(
             (of reads not qualifying validity filter) with CNN-LSTM-CRF[/green]
             """)
         ] = "HYB",
-    strand: str = typer.Option("unstranded", help=(
-        "Strand information of the reads: 3', 5', unstranded"
-        )),
     chunk_size: int = typer.Option(
         100000, help=(
         "Base chunk size, dynamically adjusts based on read length"
         )),
+    gpu_mem: Annotated[
+        str, typer.Option(
+            help="""
+            Total memory of the GPU in GB.\n
+            => If there's only one GPU or multiple-GPUs with same memory, specify an integer\n
+            => If there are mutliple GPUs with different memories, specify a comma-separated list (e.g., 8,16,32)\n
+            => If nothing is specified and one or more GPUs are available, 12 GB will be used by default.\n
+            """)
+        ] = None,
+    target_tokens: Annotated[
+        int, typer.Option(help=
+        """Approximate token budget *per GPU replica* used to pick a safe batch size.\n
+        => A 'token' is one input position after padding (for DNA here: ~1 base = 1 token).\n
+        => Effective tokens per replica ≈ batch_size × padded_seq_len.\n
+        => Increase to try larger batches (more memory), decrease if you hit OOM.\n
+        => If running on CPU, this still guides batch size heuristics."""
+        )] = 1_200_000,
+    vram_headroom: float = typer.Option(0.35, help="Fraction of GPU memory to reserve as headroom"),
+    min_batch_size: int = typer.Option(1, help="Minimum batch size for model inference"),
+    max_batch_size: int = typer.Option(8192, help="Maximum batch size for model inference"),
     bc_lv_threshold: int = typer.Option(2, help="lv-distance threshold for barcode correction"),
     threads: int = typer.Option(12, help="Number of CPU threads for barcode correction and demultiplexing"),
-    max_queue_size: int = typer.Option(3, help="Max number of Parquet files to queue for post-processing")
+    max_queue_size: int = typer.Option(3, help="Max number of Parquet files to queue for post-processing"),
 ):
     start = time.time()
 
@@ -478,8 +499,7 @@ def annotate_reads(
                 if item is None:
                     break
 
-                parquet_file, chunk_idx, predictions, read_names, reads, read_lengths, base_qualities = item
-                bin_name = os.path.basename(parquet_file).replace(".parquet", "")
+                parquet_file, bin_name, chunk_idx, predictions, read_names, reads, read_lengths, base_qualities = item
 
                 append = "w" if chunk_idx == 1 else "a"
 
@@ -499,7 +519,7 @@ def annotate_reads(
                     predictions, label_binarizer,
                     local_cumulative_stats,
                     read_lengths, seq_order,
-                    add_header, bin_name, output_dir,
+                    add_header, bin_name, chunk_idx, output_dir,
                     invalid_output_file,
                     invalid_file_lock, valid_output_file,
                     valid_file_lock, barcodes,
@@ -582,7 +602,12 @@ def annotate_reads(
                                           chunk_size, model_path,
                                           model_path_w_CRF,
                                           model_type,
-                                          num_labels):
+                                          num_labels,
+                                          user_total_gb=gpu_mem,
+                                          target_tokens_per_replica=target_tokens,
+                                          safety_margin=vram_headroom,
+                                          min_batch=min_batch_size,
+                                          max_batch=max_batch_size):
                 task_queue.put(item)
                 with header_track.get_lock():
                     header_track.value += 1
@@ -592,9 +617,7 @@ def annotate_reads(
             task_queue.put(None)
 
         logging.info(f"[Memory] RSS: {psutil.Process().memory_info().rss / 1e6:.2f} MB")
-
         run_prediction_pipeline(result_queue, workers)
-
         logging.info(f"[Memory] RSS: {psutil.Process().memory_info().rss / 1e6:.2f} MB")
 
         logger.info("Finished first pass with regular model on all the reads")
@@ -603,7 +626,6 @@ def annotate_reads(
             worker.join()
 
         logging.info(f"[Memory] RSS: {psutil.Process().memory_info().rss / 1e6:.2f} MB")
-
         model_path_w_CRF = f"{models_dir}/{model_name}_w_CRF.h5"
 
         if model_type == "HYB":
@@ -795,7 +817,7 @@ def align(
     input_dir: str,
     ref: str,
     output_dir: str,
-    preset: str = typer.Option(None, help="minimap2 preset"),
+    preset: str = typer.Option("splice", help="minimap2 preset"),
     filt_flag: str = typer.Option("0", help=(
         "Flag for filtering out (-F in samtools) the reads. "
         "Default is 260, to filter out secondary alignments "
@@ -813,7 +835,12 @@ def align(
 
     start = time.time()
 
-    fasta_file = os.path.join(input_dir, "demuxed_fasta/demuxed.fasta")
+    if os.path.exists(os.path.join(input_dir, "demuxed_fasta/demuxed.fastq")):
+        fasta_file = os.path.join(input_dir, "demuxed_fasta/demuxed.fastq")
+    elif os.path.exists(os.path.join(input_dir, "demuxed_fasta/demuxed.fasta")):
+        fasta_file = os.path.join(input_dir, "demuxed_fasta/demuxed.fasta")
+    else:
+        raise FileNotFoundError("No demuxed FASTA or FASTQ file found in the input directory.")
 
     os.makedirs(f'{output_dir}/aligned_files', exist_ok=True)
     output_bam_dir = os.path.join(output_dir, 'aligned_files')
@@ -868,6 +895,20 @@ def dedup(
     deduplication_parallel(input_bam, out_bam,
                            lv_threshold, per_cell,
                            threads, stranded)
+    
+    if not os.path.exists(out_bam):
+        raise FileNotFoundError(f"Expected output BAM not found: {out_bam}")
+
+    try:
+        with pysam.AlignmentFile(out_bam, "rb") as bam:
+            so = (bam.header.get("HD") or {}).get("SO")
+    except Exception as e:
+        logger.warning(f"Could not read BAM header to check sort order ({e}). Assuming unsorted.")
+        so = None
+
+    logger.info("Indexing duplicate marked BAM file")
+    subprocess.run(f"samtools index -@ {threads} {out_bam}", shell=True, check=True)
+    logger.info(f"Indexing completed for {out_bam}")
 
     usage = resource.getrusage(resource.RUSAGE_CHILDREN)
     max_rss_mb = usage.ru_maxrss / 1024 if os.uname().sysname == "Linux" else usage.ru_maxrss  # Linux gives KB
@@ -992,7 +1033,29 @@ def train_model(model_name: str,
                     "contain twice the number of user-specified reads"
                     )),
                 transcriptome: str = typer.Option(None, help="transcriptome fasta file"),
-                invalid_fraction: float = typer.Option(0.3, help="fraction of invalid reads to generate")):
+                invalid_fraction: float = typer.Option(0.3, help="fraction of invalid reads to generate"),
+                gpu_mem: Annotated[
+                str, typer.Option(
+                    help="""
+                    Total memory of the GPU in GB.\n
+                    => If there's only one GPU or multiple-GPUs with same memory, 
+                    specify an integer\n
+                    => If there are mutliple GPUs with different memories,
+                    specify a comma-separated list (e.g., 8,16,32)\n
+                    => If nothing is specified and one or more GPUs are available, 
+                    12 GB will be used by default.\n
+                    """)] = None,
+                target_tokens: Annotated[
+                    int, typer.Option(help=
+                    """Approximate token budget *per GPU replica* used to pick a safe batch size.\n
+                    => A 'token' is one input position after padding (for DNA here: ~1 base = 1 token).\n
+                    => Effective tokens per replica ≈ batch_size × padded_seq_len.\n
+                    => Increase to try larger batches (more memory), decrease if you hit OOM.\n
+                    => If running on CPU, this still guides batch size heuristics."""
+                    )] = 1_200_000,
+                vram_headroom: float = typer.Option(0.35, help="Fraction of GPU memory to reserve as headroom"),
+                min_batch_size: int = typer.Option(1, help="Minimum batch size for model inference"),
+                max_batch_size: int = typer.Option(2000, help="Maximum batch size for model inference"),):
 
     base_dir = os.path.dirname(os.path.abspath(__file__))
     models_dir = os.path.join(base_dir, "models")
@@ -1005,7 +1068,6 @@ def train_model(model_name: str,
 
     with open(f"{output_dir}/simulated_data/reads.pkl", "rb") as r:
         reads = pickle.load(r)
-
     with open(f"{output_dir}/simulated_data/labels.pkl", "rb") as l:
         labels = pickle.load(l)
 
@@ -1015,7 +1077,6 @@ def train_model(model_name: str,
     if model_name not in df.columns:
         logger.info(f"{model_name} not found in the parameter file.")
         return
-
     logger.info(f"Extracting parameters for {model_name}")
 
     # Convert the model's parameter column to a dictionary of lists
@@ -1025,9 +1086,7 @@ def train_model(model_name: str,
 
     # Generate all possible combinations of parameters for this model
     param_combinations = list(itertools.product(*param_dict.values()))
-
     length_range = (min_cDNA, max_cDNA)
-
     seq_order, sequences, barcodes, UMIs, strand = seq_orders(
         f"{utils_dir}/training_seq_orders.tsv", model_name
         )
@@ -1086,10 +1145,8 @@ def train_model(model_name: str,
     for idx, param_set in enumerate(param_combinations):
         model_filename = f"{model_name}_{idx}.h5"
         param_filename = f"{model_name}_{idx}_params.json"
-        # curve_filename = f"{model_name}_{idx}_train_curve.png"
 
         os.makedirs(f'{output_dir}/{model_name}_{idx}', exist_ok=True)
-        # Convert tuple to dictionary
         params = dict(zip(param_dict.keys(), param_set))
 
         # Extract model parameters
@@ -1123,7 +1180,6 @@ def train_model(model_name: str,
 
         unique_labels = list(set([item for sublist in labels for item in sublist]))
         label_binarizer = LabelBinarizer()
-
         label_binarizer.fit(unique_labels)
 
         # Save label binarizer
@@ -1171,7 +1227,6 @@ def train_model(model_name: str,
             )
 
         logger.info(f"Training {model_name}_{idx} with parameters: {params}")
-
         if crf_layer:
             dummy_input = tf.zeros((1, 512), dtype=tf.int32)  # Batch of 1, sequence length 512
             _ = model(dummy_input)
@@ -1223,16 +1278,15 @@ def train_model(model_name: str,
                           sep='\t', index=False)
 
         encoded_data = preprocess_sequences(validation_reads)
-        predictions = annotate_new_data(encoded_data, model)
+        predictions = annotate_new_data_parallel(encoded_data, model,
+                                                 max_batch_size,
+                                                 min_batch=min_batch_size,
+                                                 strategy=None)
         annotated_reads = extract_annotated_full_length_seqs(
-            validation_reads,
-            predictions,
-            crf_layer,
-            validation_read_lengths,
-            label_binarizer,
-            seq_order,
-            barcodes,
-            n_jobs=1
+            validation_reads, predictions,
+            crf_layer, validation_read_lengths,
+            label_binarizer, seq_order,
+            barcodes, n_jobs=1
         )
         save_plots_to_pdf(validation_reads, annotated_reads,
                           validation_read_names,
