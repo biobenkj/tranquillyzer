@@ -195,12 +195,15 @@ def bc_n_demultiplex(chunk, strand, barcode_columns, whitelist_dict,
     if num_cores > 1:
         with Pool(num_cores) as pool:
             results = list(tqdm(pool.starmap(process_row, args),
-                                total=len(chunk), desc="Processing rows"))
+                                total=len(chunk),
+                                desc="Processing rows",
+                                disable=True))
 
     elif num_cores == 1:
         # Loop through each row sequentially instead of using multiprocessing
         for arg in tqdm(args, total=len(chunk),
-                        desc="Processing rows (no parallelism)"):
+                        desc="Processing rows (no parallelism)",
+                        disable=True):
             result = process_row(*arg)
             results.append(result)
 
