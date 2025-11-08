@@ -12,10 +12,11 @@ Dockerfile
 
 # Ignore everything in models folder
 models/*
-
+util_2
+utils2
 # Ignore references and analysis files
 
-tests/references
+tests/references/
 tests/10x3p/*
 
 !tests/10x3p/test_pipeline.py

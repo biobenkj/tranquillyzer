@@ -178,7 +178,7 @@ def process_row(row, strand, barcode_columns,
     elif output_fmt == "fastq":
          batch_reads[corrected_barcode_seqs_str].append(
             (f"@{row['ReadName']}_{corrected_barcode_seqs_str}_{umi_sequence} cell_id:{cell_id}|Barcodes:{corrected_barcodes_str}|UMI:{umi_sequence}|orientation:{orientation}",
-            cDNA_sequence, row['base_qualities'])
+            cDNA_sequence, row['base_qualities'][int(row['cDNA_Starts']):int(row['cDNA_Ends'])])
         )
     return result, local_match_counts, local_cell_counts, batch_reads
 
@@ -195,12 +195,15 @@ def bc_n_demultiplex(chunk, strand, barcode_columns, whitelist_dict,
     if num_cores > 1:
         with Pool(num_cores) as pool:
             results = list(tqdm(pool.starmap(process_row, args),
-                                total=len(chunk), desc="Processing rows"))
+                                total=len(chunk),
+                                desc="Processing rows",
+                                disable=True))
 
     elif num_cores == 1:
         # Loop through each row sequentially instead of using multiprocessing
         for arg in tqdm(args, total=len(chunk),
-                        desc="Processing rows (no parallelism)"):
+                        desc="Processing rows (no parallelism)",
+                        disable=True):
             result = process_row(*arg)
             results.append(result)
 
