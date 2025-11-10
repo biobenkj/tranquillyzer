@@ -57,11 +57,18 @@ def seq_orders(file_path, model):
                     UMIs = fields[4].strip().split(',')
                     strand = fields[5].strip()
 
-                    break
+                    return sequence_order, sequences, barcodes, UMIs, strand
 
                 # Model name not found on this line, moving to the next one
 
-        return sequence_order, sequences, barcodes, UMIs, strand
+        # If we make it here, requested model was not found
+        # Verify just to be sure though
+        if len(sequence_order) == 0:
+            # TODO: A more well-rounded error handling set up needs to be developed
+            #       This gets the job done as trying to unpack None into a tuple causes an error,
+            #       but this isn't an ideal long term solution
+            raise Exception(f"Requested model ({model}) not found")
+
     except Exception as e:
         print(f"An error occurred: {e}")
 
