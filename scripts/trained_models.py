@@ -3,7 +3,7 @@ import os
 
 def trained_models():
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    models_dir = os.path.join(base_dir, "..", "models")   
+    models_dir = os.path.join(base_dir, "..", "models")
     models_dir = os.path.abspath(models_dir)
 
     utils_dir = os.path.join(base_dir, "..", "utils")
@@ -44,33 +44,22 @@ def seq_orders(file_path, model):
         # Open the file and read lines
         with open(file_path, 'r') as file:
             for line in file:
-                # Split the line by commas
-                fields = line.strip().split("\t")
+                # Split the line by tabs, removing extra quote characters at the same time
+                fields = line.strip().replace("'", "").replace("\"", "").split("\t")
 
-                model_name = fields[0].rstrip()
-                sequence_order = fields[1][1:-1].rstrip().split(',')
-                sequences = fields[2][1:-1].rstrip().split(',')
-
-                barcodes = fields[3]
-                if (barcodes.startswith("'") and barcodes.endswith("'")) or (barcodes.startswith("\"") and barcodes.endswith("\"")):
-                    barcodes = barcodes[1:-1] 
-                barcodes = barcodes.rstrip().split(',')
-
-                UMIs = fields[4]
-                if (UMIs.startswith("'") and UMIs.endswith("'")) or (UMIs.startswith("\"") and UMIs.endswith("\"")):
-                    UMIs = UMIs[1:-1] 
-                UMIs = UMIs.rstrip().split(',')
-
-                strand = fields[5].rstrip()
-
-                # The first part is the model name, the rest are sequences
+                # Check if desired model has been found
+                # If so, process rest of the line
+                model_name = fields[0].strip()
                 if model_name == model:
-                    sequence_order = sequence_order
-                    sequences = sequences
-                    barcodes = barcodes
-                    UMIs = UMIs
-                    strand = strand
+                    sequence_order = fields[1].strip().split(',')
+                    sequences = fields[2].strip().split(',')
+                    barcodes = fields[3].strip().split(',')
+                    UMIs = fields[4].strip().split(',')
+                    strand = fields[5].strip()
+
                     break
+
+                # Model name not found on this line, moving to the next one
 
         return sequence_order, sequences, barcodes, UMIs, strand
     except Exception as e:
