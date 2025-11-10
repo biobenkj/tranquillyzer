@@ -317,9 +317,6 @@ tranquillyzer simulate-data \
     [OPTIONS] \
     MODEL_NAME \
     OUTPUT_DIR
-## Usage
-
-```bash
 ```
 
 ## Command Line Arguments
