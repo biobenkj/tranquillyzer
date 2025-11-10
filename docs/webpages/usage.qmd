@@ -303,12 +303,32 @@ Optional Arguments
 In order to train a new model, simulated training data that mimics the sequencing library structure needs to be
 generated. This is accomplished using the `simulate-data` command, which creates synthetic reads based on a user-defined
 label schema and error profile. The schema is defined in a tab-delimited file that specifies the order and sequences of
-structural elements (e.g., adapters, barcodes, UMIs, polyA/T tails, cDNA regions). The first column defines the model
-name, the second column defines the label sequence (using predefined labels like ADAPTER, CBC, UMI, POLYA, POLYT, cDNA),
-and the third column provides the exact sequences for fixed elements. Variable elements like CBCs and UMIs are
-represented by `N`'s, with their lengths determined by the number of `N`'s (e.g., `7N` is a random sequence with a
-length of 7 bp). An example schema file can be found on
-[GitHub](https://github.com/huishenlab/tranquillyzer/blob/main/utils/training_seq_orders.tsv).
+structural elements (e.g., adapters, barcodes, UMIs, polyA/T tails, cDNA regions). An example schema file can be found
+on [GitHub](https://github.com/huishenlab/tranquillyzer/blob/main/utils/training_seq_orders.tsv). There are six columns
+that need to be specified within this file:
+
+1. The model name. This should match the `MODEL_NAME` that you will call from the command line.
+2. Comma-separated list of sequence label names in the order they occur in a read. These names are used to annotate the
+   various elements in the read. Examples include `i5`, `i7`, `p5`, `cDNA`, `polyA`, and so on. When creating a new
+   model, you are free to name these as you wish. **However, when using an already trained model, do not change these
+   names.** For example, one model may call the polyA tail `polyA`, while another may call it `poly_a`. This difference
+   is reasonable as long as the name is consistent within each model.
+3. Comma-separated list of sequences corresponding to each sequence label name. For fixed sequences like adapters or
+   primers, provide the entire known sequence. For elements with an unknown length and/or sequence, select one of the
+   following options:
+   - `NX`: An unknown sequence of fixed length `X` (e.g., `N8` or `N16`). This would be how you input elements that are
+     selected from a fixed set of sequences like cell barcodes, UMIs, or unique dual indexes (UDIs).
+   - `NN`: An unknown sequence of unknown length. This is how you would input a cDNA element.
+   - `T`: Given for a polyT tail element (i.e., a sequence of `T`'s of unknown length)
+   - `A`: Given for a polyA tail element (i.e., a sequence of `A`'s of unknown length)
+4. Comma-separated list of sequence label names that are used to define a single cell. For example, 10x Genomics
+   protocols are uniquely defined by the CBC, so this column would be `CBC` to match the element `CBC` in column 2.
+   Note, this name must match the column name of your TSV file that defines that barcodes and any other elements
+   included in defining a cell.
+5. Comma-separated list of sequence label names that are used to define a single molecule (e.g., `UMI`).
+6. Whether the given sequence order in column 2 gives expected orientation of the cDNA in the read (`fwd` or `rev`).
+   `fwd` matches the expected orientation and `rev` is the reverse complement. Used to ensure cDNA properly aligns with
+   its correct orientation.
 
 ## Usage
 
