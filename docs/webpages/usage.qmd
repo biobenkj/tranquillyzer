@@ -298,8 +298,6 @@ Optional Arguments
 
 # Simulate Training Data
 
-TODO: Fill out this section
-
 ## Overview
 
 In order to train a new model, simulated training data that mimics the sequencing library structure needs to be
@@ -319,6 +317,9 @@ tranquillyzer simulate-data \
     [OPTIONS] \
     MODEL_NAME \
     OUTPUT_DIR
+## Usage
+
+```bash
 ```
 
 ## Command Line Arguments
