@@ -302,20 +302,49 @@ TODO: Fill out this section
 
 ## Overview
 
+In order to train a new model, simulated training data that mimics the sequencing library structure needs to be
+generated. This is accomplished using the `simulate-data` command, which creates synthetic reads based on a user-defined
+label schema and error profile. The schema is defined in a tab-delimited file that specifies the order and sequences of
+structural elements (e.g., adapters, barcodes, UMIs, polyA/T tails, cDNA regions). The first column defines the model
+name, the second column defines the label sequence (using predefined labels like ADAPTER, CBC, UMI, POLYA, POLYT, cDNA),
+and the third column provides the exact sequences for fixed elements. Variable elements like CBCs and UMIs are
+represented by `N`'s, with their lengths determined by the number of `N`'s (e.g., `7N` is a random sequence with a
+length of 7 bp). An example schema file can be found on
+[GitHub](https://github.com/huishenlab/tranquillyzer/blob/main/utils/training_seq_orders.tsv).
+
 ## Usage
 
 ```bash
+tranquillyzer simulate-data \
+    [OPTIONS] \
+    MODEL_NAME \
+    OUTPUT_DIR
 ```
 
 ## Command Line Arguments
 
 Required Arguments
 
--
+- `MODEL_NAME`: Name of model to generate reads for (follows library structure matching `MODEL_NAME` in
+  `utils/training_seq_orders.tsv`
+- `OUTPUT_DIR`: Where to write the output FASTA file(s) to
 
 Optional Arguments
 
--
+- `--num-reads INTEGER`: Number of reads to simulate (default: 50000)
+- `--mismatch-rate FLOAT`: Mismatch rate (default: 0.05)
+- `--insertion-rate FLOAT`: Insertion rate (default: 0.05)
+- `--deletion-rate FLOAT`: Deletion rate (default: 0.06)
+- `--min-cdna INTEGER`: Minimum cDNA length (default: 100)
+- `--max-cdna INTEGER`: Maximum cDNA length (default: 500)
+- `--polyt-error-rate FLOAT`: Error rate within polyT or polyA segments (default: 0.02)
+- `--max-insertions FLOAT`: Maximum number of allowed insertions after a base (default: 1)
+- `--threads INTEGER`: Number of CPU threads (default: 2)
+- `--rc` / `--no-rc`: Whether to include reverse complements of the reads in the training data. If `rc`, final dataset
+  will contain twice the number of user-specified reads (default: `rc`)
+- `--transcriptome TEXT`: Transcriptome FASTA file. Used to generate cDNA if provided (default: None)
+- `--invalid-fraction FLOAT`: Fraction of invalid reads to generate (default: 0.3)
+- `--help`: Show this message and exit
 
 # Model Training
 
