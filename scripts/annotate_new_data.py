@@ -31,11 +31,11 @@ NUCLEOTIDE_TO_ID[ord('N')] = 5  # Default encoding for unknown nucleotides
 
 # Enable memory growth to avoid pre-allocating all GPU memory
 gpus = tf.config.experimental.list_physical_devices('GPU')
-for gpu in gpus:
-    tf.config.experimental.set_memory_growth(gpu, True)
+if len(gpus) > 0:
+    for gpu in gpus:
+        tf.config.experimental.set_memory_growth(gpu, True)
 
 tf.config.optimizer.set_jit(True)
-
 
 @njit
 def encode_sequence_numba(read):
@@ -56,21 +56,6 @@ def preprocess_sequences(sequences):
         encoded_array[i, :len(seq)] = encode_sequence_numba(seq)
 
     return encoded_array
-
-
-# Function to calculate the total number of rows in the Parquet file
-def calculate_total_rows(parquet_file):
-    df = pl.scan_parquet(parquet_file)
-    total_rows = df.collect().shape[0]
-    return total_rows
-
-
-# function to estimate the average read length from the bin name
-def estimate_average_read_length_from_bin(bin_name):
-    bounds = bin_name.replace("bp", "").split("_")
-    lower_bound = int(bounds[0])
-    upper_bound = int(bounds[1])
-    return (lower_bound + upper_bound) / 2
 
 
 # Function to calculate the total number of rows in the Parquet file
