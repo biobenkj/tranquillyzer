@@ -81,6 +81,15 @@ logger = logging.getLogger(__name__)
 
 @app.command()
 def availableModels():
+    """
+    Print a catalog of available pretrained models.
+
+    This is a thin CLI wrapper around `scripts.trained_models.trained_models()`.
+    It writes model information to stdout for human inspection.
+
+    Usage:
+        python main.py availablemodels
+    """
     trained_models()
 
 # ===========================================
@@ -99,6 +108,33 @@ def preprocess(fasta_dir: str, output_dir: str,
                threads: int = typer.Option(12, help=(
                    "Number of CPU threads"
                    ))):
+
+    """
+    Preprocess raw FASTA/FASTQ files into length-binned Parquet files.
+
+    Steps:
+      1) Discover sequence files under `fasta_dir`.
+      2) If one file: extract & bin reads serially into TSV chunks, then convert to Parquet.
+         If multiple: run `parallel_preprocess_data` across `threads`.
+      3) Record peak memory and runtime.
+
+    Args:
+        fasta_dir: Directory containing input FASTA/FASTQ (optionally gzipped) files.
+        output_dir: Directory where outputs are written: `<output_dir>/full_length_pp_fa`.
+        output_base_qual: If True, include base qualities in outputs when available.
+        chunk_size: Base chunk size for binning; effective size scales with read-length distribution.
+        threads: Number of CPU workers for parallel preprocessing.
+
+    Outputs:
+        - `<output_dir>/full_length_pp_fa/*.tsv[.lock]` (intermediate, cleaned up)
+        - `<output_dir>/full_length_pp_fa/*.parquet` (final)
+        - `<output_dir>/full_length_pp_fa/read_index.parquet` (read → parquet file mapping)
+        - Logs to stdout/stderr.
+
+    Raises:
+        FileNotFoundError: If `fasta_dir` has no readable sequence files.
+        RuntimeError: Propagated from subprocesses if failures occur.
+    """
 
     os.system("mkdir -p " + output_dir + "/full_length_pp_fa")
     files_to_process = find_sequence_files(fasta_dir)
@@ -151,7 +187,21 @@ def preprocess(fasta_dir: str, output_dir: str,
 
 @app.command()
 def readlengthDist(output_dir: str):
+    """
+    Generate a read-length distribution plot from preprocessed parquet files.
 
+    Reads the binned Parquet files in `<output_dir>/full_length_pp_fa` and
+    writes a PNG/PDF plot into `<output_dir>/plots`.
+
+    Args:
+        output_dir: Base output directory from the `preprocess` step.
+
+    Outputs:
+        `<output_dir>/plots/read_length_distribution.*`
+
+    Raises:
+        FileNotFoundError: If required Parquet files are missing.
+    """
     start = time.time()
     os.makedirs(f"{output_dir}/plots", exist_ok=True)
 
@@ -173,6 +223,20 @@ def readlengthDist(output_dir: str):
 
 # Return the associated Parquet file for the read name
 def load_read_index(index_file_path, read_name):
+    """
+    Resolve the Parquet file containing a specific read.
+
+    Args:
+        index_file_path: Path to the global `read_index.parquet` mapping.
+        read_name: Read identifier to look up.
+
+    Returns:
+        Absolute or relative path (as stored) to the Parquet file that contains
+        `read_name`, or `None` if not present.
+
+    Side Effects:
+        Emits a warning log if the read is not found.
+    """
     df = (
         pl.read_parquet(index_file_path)
         .filter(pl.col("ReadName") == read_name)
@@ -199,6 +263,10 @@ def visualize(output_dir: str,
                                     [red]CRF[/red] = [green]CNN-LSTM-CRF[/green]
                                     """)
                                     ] = "CRF",
+              seq_order_file: str = typer.Option(
+                  None,
+                  help="Path to the seq_orders.tsv file. If not provided, uses the default from utils."
+              ),
               gpu_mem: Annotated[
                 str, typer.Option(
                     help="""
@@ -231,6 +299,34 @@ def visualize(output_dir: str,
                   help="Comma-separated list of read names to visualize"),
               threads: int = typer.Option(2, help=(
                    "Number of CPU threads"))):
+    """
+    Run model inference on selected reads and export per-read annotation plots.
+
+    You can either provide `read_names` (comma-separated list) to visualize
+    specific reads, or supply `num_reads` to randomly sample reads from the
+    global `read_index.parquet`.
+
+    Args:
+        output_dir: Pipeline base output directory (expects `full_length_pp_fa/`).
+        output_file: Base name for the output PDF under `<output_dir>/plots`.
+        model_name: Base model name; `_w_CRF` suffix is inferred for CRF mode.
+        model_type: One of {"REG","CRF"}; model choice for inference.
+        gpu_mem: Optional GPU memory budget string (e.g., "12" or "8,16").
+        target_tokens: Token budget per replica to estimate batch sizing.
+        vram_headroom: Fraction of VRAM to reserve to reduce OOM risk.
+        min_batch_size: Lower bound for batch size search.
+        max_batch_size: Upper bound for batch size search.
+        num_reads: If provided, randomly sample this many reads to visualize.
+        read_names: If provided, comma-separated explicit read IDs to visualize.
+        threads: CPU workers for downstream decoding/extraction.
+
+    Outputs:
+        `<output_dir>/plots/<output_file>.pdf` — tiled per-read annotation plots.
+
+    Raises:
+        ValueError: If neither `num_reads` nor `read_names` is supplied.
+        FileNotFoundError: If required indices/files are missing.
+    """
 
     start = time.time()
 
@@ -241,8 +337,11 @@ def visualize(output_dir: str,
     utils_dir = os.path.join(base_dir, "utils")
     utils_dir = os.path.abspath(utils_dir)
 
+    if seq_order_file is None:
+        seq_order_file = os.path.join(utils_dir, "seq_orders.tsv")
+
     seq_order, sequences, barcodes, UMIs, strand = seq_orders(
-        os.path.join(utils_dir, "seq_orders.tsv"),
+        seq_order_file,
         model_name
     )
 
@@ -395,6 +494,10 @@ def annotate_reads(
             (of reads not qualifying validity filter) with CNN-LSTM-CRF[/green]
             """)
         ] = "HYB",
+    seq_order_file: str = typer.Option(
+        None,
+        help="Path to the seq_orders.tsv file. If not provided, uses the default from utils."
+    ),
     chunk_size: int = typer.Option(
         100000, help=(
         "Base chunk size, dynamically adjusts based on read length"
@@ -423,6 +526,44 @@ def annotate_reads(
     threads: int = typer.Option(12, help="Number of CPU threads for barcode correction and demultiplexing"),
     max_queue_size: int = typer.Option(3, help="Max number of Parquet files to queue for post-processing"),
 ):
+    """
+    End-to-end annotation, barcode correction, demultiplexing, and QC plots.
+
+    Pipeline:
+      1) Iterate through binned Parquet files and run model predictions.
+      2) Post-process predictions to call segments, correct barcodes (Levenshtein),
+         and write demultiplexed reads to FASTA/FASTQ.
+      3) Optionally (HYB) re-run invalid reads with CRF model.
+      4) Emit summary TSV/Parquet files and PDF plots for barcode & demux stats.
+
+    Args:
+        output_dir: Base directory with `full_length_pp_fa/` and target for outputs.
+        whitelist_file: TSV with valid barcode columns; used for demultiplexing.
+        output_fmt: "fasta" or "fastq" for demultiplexed outputs.
+        model_name: Base model label (without `_w_CRF`).
+        model_type: "REG", "CRF", or "HYB" (REG pass then CRF on invalid).
+        chunk_size: Row group size for final Parquet conversions.
+        gpu_mem: Optional GPU memory budget string (e.g., "12" or "8,16").
+        target_tokens: Token budget per replica to guide batching.
+        vram_headroom: Fraction of VRAM to keep free as safety margin.
+        min_batch_size: Min batch size for inference.
+        max_batch_size: Max batch size for inference.
+        bc_lv_threshold: Levenshtein threshold for barcode correction.
+        threads: CPU workers for barcode/demux post-processing.
+        max_queue_size: Max in-flight Parquet chunks for worker queueing.
+
+    Outputs:
+        - `<output_dir>/annotations_valid.parquet` and `_invalid.parquet`
+        - `<output_dir>/demuxed_fasta/demuxed.(fa|fq)` and `ambiguous.(fa|fq)`
+        - `<output_dir>/plots/barcode_plots.pdf`, `demux_plots.pdf`
+        - Read length & cDNA length plots for valid reads
+        - Match/cell counts TSVs
+
+    Raises:
+        FileNotFoundError: If expected input files or whitelist are missing.
+        TimeoutError: If worker result collection stalls beyond threshold.
+        RuntimeError: Propagated exceptions from worker processes.
+    """
     start = time.time()
 
     base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -432,6 +573,9 @@ def annotate_reads(
     utils_dir = os.path.join(base_dir, "utils")
     utils_dir = os.path.abspath(utils_dir)
 
+    if seq_order_file is None:
+        seq_order_file = os.path.join(utils_dir, "seq_orders.tsv")
+
     model_path_w_CRF = None
     model_path = None
 
@@ -440,7 +584,7 @@ def annotate_reads(
         with open(f"{models_dir}/{model_name}_lbl_bin.pkl", "rb") as f:
             label_binarizer = pickle.load(f)
 
-    seq_order, sequences, barcodes, UMIs, strand = seq_orders(f"{utils_dir}/seq_orders.tsv", model_name)
+    seq_order, sequences, barcodes, UMIs, strand = seq_orders(seq_order_file, model_name)
     whitelist_df = pd.read_csv(whitelist_file, sep='\t')
     num_labels = len(seq_order)
 
@@ -832,6 +976,30 @@ def align(
         "additional minimap2 arguments"
         ))
 ):
+    """
+    Align demultiplexed reads to a reference with minimap2 and index the BAM.
+
+    This command finds `<input_dir>/demuxed_fasta/demuxed.(fastq|fasta)`,
+    aligns using `minimap2 -ax <preset>`, filters with samtools (`-F filt_flag -q mapq`),
+    sorts and writes a coordinate-sorted BAM, then creates a BAM index.
+
+    Args:
+        input_dir: Directory containing `demuxed_fasta` outputs.
+        ref: Reference genome/transcriptome FASTA for minimap2.
+        output_dir: Base directory to write `aligned_files/demuxed_aligned.bam`.
+        preset: Minimap2 preset (e.g., "splice" for long RNA).
+        filt_flag: Samtools view `-F` flag to drop reads by bitwise flags.
+        mapq: Minimum MAPQ to keep alignments.
+        threads: Number of CPU threads for minimap2/samtools.
+        add_minimap_args: Extra args appended to the minimap2 command.
+
+    Outputs:
+        `<output_dir>/aligned_files/demuxed_aligned.bam[.bai]`
+
+    Raises:
+        FileNotFoundError: If demultiplexed FASTA/FASTQ cannot be located.
+        CalledProcessError: If minimap2/samtools commands fail.
+    """
 
     start = time.time()
 
@@ -856,7 +1024,7 @@ def align(
     logger.info(f"Alignment completed and sorted BAM saved as {output_bam}")
 
     logger.info(f"Indexing {output_bam}")
-    subprocess.run(f"samtools index {output_bam}", shell=True, check=True)
+    subprocess.run(f"samtools index -@ {threads} {output_bam}", shell=True, check=True)
     logger.info("Indexing complete")
 
     usage = resource.getrusage(resource.RUSAGE_CHILDREN)
@@ -883,8 +1051,30 @@ def dedup(
         )),
     threads: int = typer.Option(12, help="number of CPU threads")
 ):
+    """
+    Mark/remove PCR duplicates using UMI-aware clustering on aligned reads.
+
+    Invokes the project-specific `deduplication_parallel` which clusters UMIs
+    by Levenshtein distance (threshold `lv_threshold`), optionally per-cell and
+    respecting library strandedness.
+
+    Args:
+        input_dir: Base directory with `aligned_files/demuxed_aligned.bam`.
+        lv_threshold: Edit distance threshold for grouping similar UMIs.
+        stranded: Whether library is strand-aware.
+        per_cell: If True, perform UMI correction per cell ID.
+        threads: CPU threads used by the deduplication pipeline.
+
+    Outputs:
+        `<input_dir>/aligned_files/demuxed_aligned_dup_marked.bam[.bai]`
+
+    Raises:
+        FileNotFoundError: If expected output BAM is not produced.
+        RuntimeError: If underlying tools throw errors.
+    """
 
     start = time.time()
+    logger.info("Starting duplicate marking process")
 
     aligned_bam = "aligned_files/demuxed_aligned.bam"
     dup_marked_bam = "aligned_files/demuxed_aligned_dup_marked.bam"
@@ -923,6 +1113,10 @@ def dedup(
 @app.command()
 def simulate_data(model_name: str,
                   output_dir: str,
+                  training_seq_orders_file: str = typer.Option(None, help=(
+                      "Path to the seq_orders.tsv file. If not provided, "
+                      "uses the default from utils."
+                  )),
                   num_reads: int = typer.Option(50000, help="number of reads to simulate"),
                   mismatch_rate: float = typer.Option(0.05, help="mismatch rate"),
                   insertion_rate: float = typer.Option(0.05, help="insertion rate"),
@@ -945,6 +1139,33 @@ def simulate_data(model_name: str,
                       )),
                   transcriptome: str = typer.Option(None, help="transcriptome fasta file"),
                   invalid_fraction: float = typer.Option(0.3, help="fraction of invalid reads to generate")):
+    """
+    Generate synthetic labeled reads for training, and serialize to PKL.
+
+    The generator uses a model-specific segment order/pattern and either
+    provided transcripts or synthetic random transcripts to create realistic
+    reads with configurable error profiles.
+
+    Args:
+        model_name: Model key for segment order specification.
+        output_dir: Destination for `simulated_data/reads.pkl` and `labels.pkl`.
+        num_reads: Number of primary reads to synthesize (before RC doubling).
+        mismatch_rate: Base substitution probability.
+        insertion_rate: Base insertion probability.
+        deletion_rate: Base deletion probability.
+        min_cDNA: Minimum transcript (cDNA) segment length.
+        max_cDNA: Maximum transcript (cDNA) segment length.
+        polyT_error_rate: Error rate within polyT/polyA regions.
+        max_insertions: Maximum insertions per base position.
+        threads: CPU threads used within the generator.
+        rc: If True, include reverse complements (doubling dataset size).
+        transcriptome: Optional FASTA of transcripts; otherwise random.
+        invalid_fraction: Fraction of reads to synthesize as invalid.
+
+    Outputs:
+        `<output_dir>/simulated_data/reads.pkl`
+        `<output_dir>/simulated_data/labels.pkl`
+    """
 
     reads = []
     labels = []
@@ -956,8 +1177,11 @@ def simulate_data(model_name: str,
     utils_dir = os.path.join(base_dir, "utils")
     utils_dir = os.path.abspath(utils_dir)
 
+    if training_seq_orders_file is None:
+        training_seq_orders_file = f"{utils_dir}/training_seq_orders.tsv"
+
     seq_order, sequences, barcodes, UMIs, strand = seq_orders(
-        f"{utils_dir}/training_seq_orders.tsv", model_name
+        training_seq_orders_file, model_name
         )
     seq_order_dict = {}
 
@@ -1018,6 +1242,14 @@ def simulate_data(model_name: str,
 @app.command()
 def train_model(model_name: str,
                 output_dir: str,
+                param_file: str = typer.Option(None, help=(
+                    "Path to the training_params.tsv file. If not provided, "
+                    "uses the default from utils."
+                )),
+                training_seq_orders_file: str = typer.Option(None, help=(
+                    "Path to the seq_orders.tsv file. If not provided, "
+                    "uses the default from utils."
+                )),
                 num_val_reads: int = typer.Option(20, help="number of reads to simulate"),
                 mismatch_rate: float = typer.Option(0.05, help="mismatch rate"),
                 insertion_rate: float = typer.Option(0.05, help="insertion rate"),
@@ -1056,7 +1288,42 @@ def train_model(model_name: str,
                 vram_headroom: float = typer.Option(0.35, help="Fraction of GPU memory to reserve as headroom"),
                 min_batch_size: int = typer.Option(1, help="Minimum batch size for model inference"),
                 max_batch_size: int = typer.Option(2000, help="Maximum batch size for model inference"),):
+    """
+    Grid-train model variants from parameter table and export artifacts.
 
+    For a given `model_name`, this reads `utils/training_params.tsv`,
+    enumerates parameter combinations, trains each variant using a distributed
+    strategy when available, and saves:
+      - model weights / SavedModel
+      - fitted label binarizer
+      - training history
+      - validation visualization PDF on a small synthetic set
+
+    Args:
+        model_name: Column in `training_params.tsv` whose parameter grid to use.
+        output_dir: Base directory to write per-variant subfolders and artifacts.
+        num_val_reads: Number of validation reads to synthesize.
+        mismatch_rate / insertion_rate / deletion_rate: Error model for validation set.
+        min_cDNA / max_cDNA: Transcript length bounds for validation set.
+        polyT_error_rate: Error rate inside polyT/polyA for validation set.
+        max_insertions: Max insertions per position for validation set.
+        threads: CPU threads for validation read synthesis.
+        rc: Include reverse complements for validation set.
+        transcriptome: Optional validation FASTA; else random transcripts.
+        invalid_fraction: Fraction of invalid reads to generate for validation set.
+        gpu_mem / target_tokens / vram_headroom / min_batch_size / max_batch_size:
+            Parameters to guide validation inference batch sizing (plot stage).
+
+    Outputs (per variant `<model_name>_<idx>`):
+        - `*.h5` or SavedModel
+        - `<model_name>_<idx>_lbl_bin.pkl`
+        - `<model_name>_<idx>_history.tsv`
+        - `<model_name>_<idx>_val_viz.pdf`
+
+    Raises:
+        FileNotFoundError: If `training_params.tsv` missing or `model_name` not present.
+        RuntimeError: If training fails.
+    """
     base_dir = os.path.dirname(os.path.abspath(__file__))
     models_dir = os.path.join(base_dir, "models")
     models_dir = os.path.abspath(models_dir)
@@ -1064,7 +1331,14 @@ def train_model(model_name: str,
     utils_dir = os.path.join(base_dir, "utils")
     utils_dir = os.path.abspath(utils_dir)
 
-    param_file = f'{utils_dir}/training_params.tsv'
+    if param_file is None:
+        param_file = f'{utils_dir}/training_params.tsv'
+    if not os.path.exists(param_file):
+        raise FileNotFoundError(f"Parameter file not found: {param_file}")
+    if training_seq_orders_file is None:
+        training_seq_orders_file = f"{utils_dir}/training_seq_orders.tsv"
+    if not os.path.exists(training_seq_orders_file):
+        raise FileNotFoundError(f"Seq orders file not found: {training_seq_orders_file}")
 
     with open(f"{output_dir}/simulated_data/reads.pkl", "rb") as r:
         reads = pickle.load(r)
@@ -1088,7 +1362,7 @@ def train_model(model_name: str,
     param_combinations = list(itertools.product(*param_dict.values()))
     length_range = (min_cDNA, max_cDNA)
     seq_order, sequences, barcodes, UMIs, strand = seq_orders(
-        f"{utils_dir}/training_seq_orders.tsv", model_name
+        training_seq_orders_file, model_name
         )
 
     print(f"seq orders: {seq_order}")
