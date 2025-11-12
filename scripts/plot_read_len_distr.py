@@ -1,7 +1,14 @@
 import os
+import logging
 import polars as pl
 import numpy as np
 import matplotlib.pyplot as plt
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 
 def plot_read_len_distr(parquet_dir, output_dir):
@@ -11,7 +18,7 @@ def plot_read_len_distr(parquet_dir, output_dir):
                      if f.endswith('.parquet') and f != 'read_index.parquet']
 
     if not parquet_files:
-        print("No Parquet files found in the directory.")
+        logger.info("No Parquet files found in the directory.")
         return
 
     read_lengths = []
@@ -24,18 +31,18 @@ def plot_read_len_distr(parquet_dir, output_dir):
             read_lengths.extend(df["read_length"].to_list())
 
         except Exception as e:
-            print(f"Error reading {parquet_file}: {e}")
+            logger.info(f"Error reading {parquet_file}: {e}")
             continue
 
     if not read_lengths:
-        print("No read lengths found.")
+        logger.info("No read lengths found.")
         return
 
     read_lengths = np.array(read_lengths, dtype=int)
     if len(read_lengths) > 0:
-        print(f"Minimum read length: {read_lengths.min()}, Maximum read length: {read_lengths.max()}")
+        logger.info(f"Minimum read length: {read_lengths.min()}, Maximum read length: {read_lengths.max()}")
     else:
-        print("No valid read lengths found after loading.")
+        logger.info("No valid read lengths found after loading.")
         return
 
     # log_read_lengths = np.log10(read_lengths[read_lengths > 0])
@@ -55,4 +62,4 @@ def plot_read_len_distr(parquet_dir, output_dir):
     plt.savefig(plot_file)
     plt.close()
 
-    print(f"Read length distribution plot saved to {plot_file}")
+    logger.info(f"Read length distribution plot saved to {plot_file}")

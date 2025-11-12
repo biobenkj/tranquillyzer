@@ -3,7 +3,7 @@ from setuptools import setup
 setup(
     name='tranquillyzer',
     version='0.1.0',
-    packages=['.', 'scripts', 'utils'],
+    packages=['.', 'scripts', 'utils', 'wrappers'],
     py_modules=['main'],
     include_package_data=True,
     package_data={
