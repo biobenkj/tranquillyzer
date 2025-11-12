@@ -1,0 +1,106 @@
+---
+title: Installation
+---
+
+We recommend using `mamba` for efficient environment setup and reproducibility. The following steps will guide you
+through a clean GPU-enabled installation.
+
+# Installation Prerequisites
+
+Tranquillyzer is currently only available on GitHub and requires the following tools to perform the installation:
+
+```bash
+git
+mamba
+```
+
+`pip` is also required; however, this will be installed when creating the virtual environment and does not need to be
+installed ahead of time.
+
+
+# 1. Clone the Repository
+
+```bash
+git clone https://github.com/huishenlab/tranquillyzer.git
+cd tranquillyzer
+```
+
+# 2. Add Model Files
+
+Before proceeding with the installation, download the model files [this Dropbox link](https://www.dropbox.com/scl/fo/3lms8n97bnufzqa4ausv9/AGkO3EVrL1ZgctwEwTK1mEA?rlkey=47m69a6smwsisdznbwu3jvjpu&st=253al7s3&dl=0)
+and manually place the required model files inside the `models/` directory.
+
+For the REG model (i.e., the base model), the following files are required:
+```bash
+<model_name>.h5
+<model_name>_lbl_bin.pkl
+```
+
+The CRF model, on the other hand, requires the following files:
+```bash
+<model_name>_w_CRF.h5
+<model_name>_w_CRF_lbl_bin.pkl
+<model_name>_w_CRF_params.json
+```
+
+These files are needed for the annotation and visualization functionality.
+
+# 3. Create and Activate Virtual Environment
+
+```bash
+mamba env create -f environment.yml
+mamba activate tranquillyzer
+```
+
+Note, this step could be run with `conda` instead of `mamba`.
+
+# 4. Install GPU-enabled TensorFlow and Add-ons
+
+To ensure compatibility with Tranquillyzer, be sure to specify version 2.15.1 for TensorFlow. Further, specify
+`tensorflow[and-cuda]` and NOT `tensorflow` to avoid system-wide CUDA requirements.
+
+```bash
+# TensorFlow with CUDA support
+pip install \
+    "tensorflow[and-cuda]==2.15.1" \
+    --extra-index-url https://pypi.nvidia.com
+
+# TensorFlow Add-ons
+pip install "tensorflow-addons==0.22.*"
+```
+
+## Fix Any Missing Dependencies
+
+If you see errors or warnings after installing TensorFlow, especially related to `bx-python` or `scikit-learn`, one
+possible solution is to run:
+
+```bash
+pip install bx-python scikit-learn
+```
+
+Then, try rerunning the TensorFlow installation.
+
+# 5. Install Tranquillyzer
+
+From the root directory of the Tranquillyzer repository, run:
+
+```bash
+pip install -e .
+```
+
+# 6. Verify Installation
+
+To verify that Tranquillyzer is installed correctly, run:
+
+```bash
+tranquillyzer --help
+```
+
+You should see the CLI help message with the available sub-commands including (but not limited to):
+
+```bash
+availablemodels
+preprocessfasta
+annotate-reads
+visualize
+```

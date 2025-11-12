@@ -1,0 +1,369 @@
+---
+title: Usage
+---
+
+This page gives a detailed description of each component/subcommand of Tranquillyzer. For a quick overview of how to run
+Tranquillyzer, see the [Quick Start](webpages/quick_start.qmd) guide.
+
+# Input / Output
+
+## Input
+
+The raw input to Tranquillyzer is an absolute or relative path to the directory containing your raw FASTA or FASTQ files
+for your data. The expected file extensions are `.fasta/.fa/.fasta.gz/.fa.gz` for FASTA files or
+`.fastq/.fq/.fastq.gz/.fq.gz` for FASTQ files.
+
+## Output
+
+Tranquillyzer produces a variety of output files from its various subcommands. A few outputs to be particularly aware of
+are:
+
+- Demultiplexed FASTA files from `annotate-reads`
+- `.parquet` files with valid and invalid annotations from `annotate-reads`
+- `.pdf` files containing QC plots from `readlengthdist` and `visualize`
+- A coordinate-sorted BAM from `align`
+- A deduplicated, coordinate-sorted BAM from `dedup`
+
+# Preprocessing
+
+## Overview
+
+To enhance the efficiency of the annotation process, Tranquillyzer organizes raw reads into separate `.parquet` files,
+grouped based on their lengths. This approach optimizes data compression within each bin, accelerates the annotation of
+the entire dataset, and facilitates the visualization of user-specified annotated reads without dependence on the
+annotation status of the complete dataset. Tranquillyzer parallelizes the preprocessing step by distributing each input
+file to its own CPU thread. Therefore, to maximize the benefits of parallelization, it is best to provide many small
+input files rather than one large input file. Typically, this is how ONT provides the basecalled FASTA/FASTQ files from
+its sequencing runs, so it is highly suggested to leave this structure as is.
+
+## Usage
+
+```bash
+tranquillyzer preprocess \
+    [OPTIONS]
+    FASTA_DIR \
+    OUTPUT_DIR
+```
+
+## Command Line Arguments
+
+Required Arguments
+
+- `FASTA_DIR`: Path to your RAW DATA directory
+- `OUTPUT_DIR`: Path to your OUTPUT directory
+
+Optional Arguments
+
+- `--output-base-qual` / `--no-output-base-qual`: Whether to output base quality scores from the FASTQ file (default:
+  `--no-output-base-qual`)
+- `--chunk-size INTEGER`: Starting chunk size for processing, dynamically adjusted based on increasing read length
+  (default: 100000)
+- `--threads INTEGER`: Number of CPU threads (default: 12)
+- `--help`: Print help message and exit
+
+# Read Length Distribution
+
+## Overview
+
+As an initial quality control metric, users may wish to visualize the read length distribution. The `readlengthdist`
+subcommand generates a plot with log<sub>10</sub>-transformed read lengths on the x-axis and their corresponding
+frequencies on the y-axis. The output is provided as a `.png` file in the `plots/` subdirectory of the provided
+`OUTPUT_DIR` path.
+
+## Usage
+
+```bash
+tranquillyzer readlengthdist \
+    [OPTIONS]
+    OUTPUT_DIR
+```
+
+## Command Line Arguments
+
+Required Arguments
+
+- `OUTPUT_DIR`: Path to your OUTPUT directory
+
+Optional Arguments
+
+- `--help`: Print help message and exit
+
+# Available Models
+
+## Overview
+
+Tranquillyzer provides a subcommand for viewing the available models (found within the `models/` directory) and the
+corresponding read architecture and exact sequences (e.g., adapters, primers, etc.) used to train the model.
+
+## Usage
+
+```bash
+tranquillyzer availablemodels \
+    [OPTIONS]
+```
+
+## Command Line Arguments
+
+Required Arguments
+
+- None
+
+Optional Arguments
+
+- `--help`: Print help message and exit
+
+# Annotation, Barcode Correction, and Demultiplexing
+
+## Overview
+
+The `annotate-reads` subcommand annotates the reads, extracts barcode sequences, corrects the barcodes, and assigns
+reads to their respective cells (i.e., demultiplexes) in a single step. It produces the following outputs:
+
+- Demultiplexed FASTA files located at `OUTPUT_DIR/demuxed_fasta/`
+- Annotation metadata:
+  - Valid reads can be found at `OUTPUT_DIR/annotations_valid.parquet`
+  - Invalid reads can be found at `OUTPUT_DIR/annotations_invalid.parquet`
+- Quality control (QC) plots
+  - `OUTPUT_DIR/plots/barcode_plots.pdf`
+  - `OUTPUT_DIR/plots/demux_plots.pdf`
+  - `OUTPUT_DIR/plots/full_read_annots.pdf`
+
+**Note:** Before running the `annotate-reads` subcommand, ensure you select the appropriate model and model type for
+your dataset. Tranquillyzer supports multiple model types:
+
+- REG (the base model, a standard CNN-LSTM model)
+- CRF (CNN-LSTM model with an added CRF layer for improved label consistency)
+- HYB (hybrid mode which runs REG first and reprocesses invalid reads with CRF)
+
+The conventions for naming models are as follows:
+
+- The REG model uses the base name (e.g., `10x3p_sc_ont_011.h5`)
+- The CRF model (and the HYB model when it runs the CRF model) is the base name followed by `_w_CRF` (e.g.
+  `10x3p_sc_ont_011_w_CRF.h5`)
+
+To select a model type (REG, CRF, or HYB), simply specify the base model name. Tranquillyzer will automatically detect
+the presence of the corresponding `_w_CRF` model file for the CRF or HYB types.
+
+If only one version (REG or CRF) is available for a model, the user must select the corresponding model type explicitly.
+We recommend verifying which model versions are present (via `availablemodels`) before running `annotate-reads`.
+
+Currently available trained models can be downloaded from [this  Dropbox link](https://www.dropbox.com/scl/fo/3lms8n97bnufzqa4ausv9/AGkO3EVrL1ZgctwEwTK1mEA?rlkey=47m69a6smwsisdznbwu3jvjpu&st=253al7s3&dl=0)
+and should be placed in the `models/` directory within the cloned Tranquillyzer repository.
+
+## Usage
+
+```bash
+tranquillyzer annotate-reads \
+    [OPTIONS] \
+    OUTPUT_DIR \
+    WHITELIST_FILE
+```
+
+## Command Line Arguments
+
+Required Arguments
+
+- `OUTPUT_DIR`: Path to your OUTPUT directory
+- `WHITELIST_FILE`: TSV file containing the sequences that define each sample (e.g., the cell barcode (CBC) and/or dual
+  index sequences). **Note**, the column names for these sequences must match the name used for that element in the
+  model training. For example, if the model uses CBC to denote the cell barcode, the `WHITELIST_FILE` must have a column
+  named "CBC" (not "barcode" or "cell_barcode"), though the order of the columns within the file does not matter.
+
+Optional Arguments
+
+- `--output-fmt TEXT`: Output format for demultiplexed reads: `fasta` or `fastq` (default: `fasta`)
+- `--model-name TEXT:` Base model name (the name of the model without any suffixes) (default: `10x3p_sc_ont_011`)
+  For `--model-type CRF`, `_w_CRF` will be appended to the base model name
+- `--model-type TEXT`: The type of model to run (see above for descriptions of each type): `REG`, `CRF`, or `HYB`
+  (default: `HYB`)
+- `--strand TEXT`: Strand information of the reads: `3'`, `5'`, or `unstranded` (default: `unstranded`)
+- `--chunk-size INTEGER`: Base chunk size for processing, dynamically adjusts based on read length (default: 100000)
+- `--bc-lv-threshold INTEGER`: Levenshtein distance threshold for barcode correction (default: 2)
+- `--threads INTEGER`: Number of CPU threads for barcode correction and demultiplexing (default: 12)
+- `--max-queue-size INTEGER`: Max number of Parquet files to queue for post-processing (default: 3)
+- `--help`: Print help message and exit
+
+# Alignment
+
+## Overview
+
+Tranquillyzer calls `minimap2` to align the demultiplexed reads. It outputs a coordinate-sorted BAM and associated BAM
+index file in `OUTPUT_DIR/aligned_files/`.
+
+## Usage
+
+```bash
+tranquillyer align \
+    [OPTIONS] \
+    INPUT_DIR \
+    REFERENCE \
+    OUTPUT_DIR
+```
+
+## Command Line Arguments
+
+Required Arguments
+
+- `INPUT_DIR`: Path to annotated read output. In practice, this is the same directory given as the `OUTPUT_DIR` in the
+  `annotate-reads` call. Looks for a file called `INPUT_DIR/demuxed_fasta/demuxed.fasta`.
+- `REFERENCE`: Reference FASTA used for `minimap2`
+- `OUTPUT_DIR`: Path to write OUTPUT directory
+
+Optional Arguments
+
+- `--preset TEXT`: `minimap2` preset (i.e., `minimap2 -ax <preset> ...` (default: None)
+- `--filt-flag INT`: Flag for filtering reads via `samtools view -F <INT> ...`. Default is to filter out secondary
+  alignments and unmapped reads (default: 260)
+- `--mapq INTEGER`: Minimum MAPQ for the alignments to be included for the downstream analysis (default: 0)
+- `--threads INTEGER`: Number of CPU threads (default: 12)
+- `--add-minimap-args TEXT`: additional `minimap2` arguments (`-t` and `-ax <preset>` already included)
+- `--help`: Show this message and exit
+
+# Duplicate Marking
+
+## Overview
+
+Duplicate marking is performed on the coordinate-sorted BAM that is output from `tranquillyzer align`. A set of reads
+are determined to be PCR duplicates if the following conditions are met:
+
+1. The start and end positions of each read fall within a user-defined window of each other
+2. The reads have identical strand orientation
+3. The reads have identical (corrected) cell barcodes
+4. The reads have UMIs that match within a user-defined threshold for Levenshtein edit distance
+
+If a set of reads meet these four criteria, one read is set as the "original" read and the others are marked as PCR
+duplicates via standard SAM auxiliary tags and application of the "read is PCR or optical duplicate" SAM flag.
+
+## Usage
+
+```bash
+tranquillyzer dedup \
+    [OPTIONS] \
+    INPUT_DIR
+```
+
+## Command Line Arguments
+
+Required Arguments
+
+- `INPUT_DIR`: Path to coordinate-sorted BAM output. In practice, this is the same directory given as the `OUTPUT_DIR`
+  in the `align` call. Looks for a file called `INPUT_DIR/aligned_files/demuxed_aligned.bam`.
+
+Optional Arguments
+
+- `--lv-threshold INTEGER`: Levenshtein distance threshold for UMI similarity (default: 2)
+- `--stranded` / `--no-stranded`: Directional (`--stranded`) or non-directional (`--no-stranded`) library (default:
+  stranded)
+- `--per-cell` / `--no-per-cell`: Whether to correct UMIs on a per cell basis (default: per-cell)
+- `--threads INTEGER`: Number of CPU threads (default: 12)
+- `--help`: Show this message and exit
+
+# Read Visualization
+
+## Overview
+
+Tranquillyzer produces color-coded visualizations of annotations generated by the specified model. These plots color the
+bases and distinctly label each run of bases for the type of annotated structural element such as the primer sequences,
+polyA/T tails, cDNA, as well as any other specified elements contained in the model. Visualization can occur before or
+after running `tranquillyzer annotate-reads` as the `visualize` command is independent of the annotations generated in
+`annotate-reads`. The resulting output is saved as a `.pdf` file in the `OUTPUT_DIR/plots` directory.
+
+## Usage
+
+```bash
+tranquillyzer visualize \
+    [OPTIONS] \
+    OUTPUT_DIR
+```
+
+## Command Line Arguments
+
+Required Arguments
+
+- `OUTPUT_DIR`: Where to write the `plots/` directory and any created PDF files
+
+Optional Arguments
+
+- `--output-file TEXT`: Prefix for output file name. `.pdf` will be added automatically (default: `full_read_annots`)
+- `--model-name TEXT`: Base model name (the name of the model without any suffixes)  (default: `10x3p_sc_ont_011`)
+  For `--model-type CRF`, `_w_CRF` will be added to the base model name
+- `--model-type TEXT`: The type of model to run (see `annotate-reads` usage for descriptions of each type): REG, CRF,
+  or HYB (default: CRF)
+- `--num-reads INTEGER`: Number of reads to randomly visualize from each Parquet file. (default: None)
+- `--read-names TEXT`: Comma-separated list of read names to visualize (default: None)
+- `--threads INTEGER`: Number of CPU threads (default: 2)
+- `--help`: Show this message and exit
+
+**Note**, either `--num-reads` or `--read-names` must be set for `visualize` to run.
+
+# Simulate Training Data
+
+## Overview
+
+In order to train a new model, simulated training data that mimics the sequencing library structure needs to be
+generated. This is accomplished using the `simulate-data` command, which creates synthetic reads based on a user-defined
+label schema and error profile. The schema is defined in a tab-delimited file that specifies the order and sequences of
+structural elements (e.g., adapters, barcodes, UMIs, polyA/T tails, cDNA regions). An example schema file can be found
+on [GitHub](https://github.com/huishenlab/tranquillyzer/blob/main/utils/training_seq_orders.tsv). There are six columns
+that need to be specified within this file:
+
+1. The model name. This should match the `MODEL_NAME` that you will call from the command line.
+2. Comma-separated list of sequence label names in the order they occur in a read. These names are used to annotate the
+   various elements in the read. Examples include `i5`, `i7`, `p5`, `cDNA`, `polyA`, and so on. When creating a new
+   model, you are free to name these as you wish. **However, when using an already trained model, do not change these
+   names.** For example, one model may call the polyA tail `polyA`, while another may call it `poly_a`. This difference
+   is reasonable as long as the name is consistent within each model.
+3. Comma-separated list of sequences corresponding to each sequence label name. For fixed sequences like adapters or
+   primers, provide the entire known sequence. For elements with an unknown length and/or sequence, select one of the
+   following options:
+   - `NX`: An unknown sequence of fixed length `X` (e.g., `N8` or `N16`). This would be how you input elements that are
+     selected from a fixed set of sequences like cell barcodes, UMIs, or unique dual indexes (UDIs).
+   - `NN`: An unknown sequence of unknown length. This is how you would input a cDNA element.
+   - `T`: Given for a polyT tail element (i.e., a sequence of `T`'s of unknown length)
+   - `A`: Given for a polyA tail element (i.e., a sequence of `A`'s of unknown length)
+4. Comma-separated list of sequence label names that are used to define a single cell. For example, 10x Genomics
+   protocols are uniquely defined by the CBC, so this column would be `CBC` to match the element `CBC` in column 2.
+   Note, this name must match the column name of your TSV file that defines that barcodes and any other elements
+   included in defining a cell.
+5. Comma-separated list of sequence label names that are used to define a single molecule (e.g., `UMI`).
+6. Whether the given sequence order in column 2 gives expected orientation of the cDNA in the read (`fwd` or `rev`).
+   `fwd` matches the expected orientation and `rev` is the reverse complement. Used to ensure cDNA properly aligns with
+   its correct orientation.
+
+## Usage
+
+```bash
+tranquillyzer simulate-data \
+    [OPTIONS] \
+    MODEL_NAME \
+    OUTPUT_DIR
+```
+
+## Command Line Arguments
+
+Required Arguments
+
+- `MODEL_NAME`: Name of model to generate reads for (follows library structure matching `MODEL_NAME` in
+  `utils/training_seq_orders.tsv`
+- `OUTPUT_DIR`: Where to write the output FASTA file(s) to
+
+Optional Arguments
+
+- `--num-reads INTEGER`: Number of reads to simulate (default: 50000)
+- `--mismatch-rate FLOAT`: Mismatch rate (default: 0.05)
+- `--insertion-rate FLOAT`: Insertion rate (default: 0.05)
+- `--deletion-rate FLOAT`: Deletion rate (default: 0.06)
+- `--min-cdna INTEGER`: Minimum cDNA length (default: 100)
+- `--max-cdna INTEGER`: Maximum cDNA length (default: 500)
+- `--polyt-error-rate FLOAT`: Error rate within polyT or polyA segments (default: 0.02)
+- `--max-insertions FLOAT`: Maximum number of allowed insertions after a base (default: 1)
+- `--threads INTEGER`: Number of CPU threads (default: 2)
+- `--rc` / `--no-rc`: Whether to include reverse complements of the reads in the training data. If `rc`, final dataset
+  will contain twice the number of user-specified reads (default: `rc`)
+- `--transcriptome TEXT`: Transcriptome FASTA file. Used to generate cDNA if provided (default: None)
+- `--invalid-fraction FLOAT`: Fraction of invalid reads to generate (default: 0.3)
+- `--help`: Show this message and exit
+
+# Model Training
+
+Coming soon!
