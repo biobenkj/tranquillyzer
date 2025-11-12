@@ -62,7 +62,6 @@ def extract_and_bin_reads(file_path, batch_size,
                 if output_base_qual:
                     reads_by_bin[bin_name] = {'read_names': [], 'reads': [],
                                               'read_lengths': [], 'base_quals': []}
-                    reads_by_bin[bin_name]['base_quals'].append(record.format("fastq").splitlines()[3])
                 else:
                     reads_by_bin[bin_name] = {'read_names': [],
                                               'reads': [],
@@ -133,47 +132,6 @@ def parallel_preprocess_data(file_list, output_dir, batch_size,
     os.system("rm " + output_dir + "/*.lock")
     convert_tsv_to_parquet(output_dir, row_group_size=1000000)
 
-
-# def convert_tsv_to_parquet(tsv_dir, row_group_size=1000000):
-#     logger.info("Converting TSV files to Parquet files...")
-#     os.makedirs(tsv_dir, exist_ok=True)
-
-#     # Find all TSV files in the directory
-#     tsv_files = glob.glob(os.path.join(tsv_dir, "*.tsv"))
-#     read_index = {}
-
-#     for tsv_file in tsv_files:
-#         bin_name = os.path.basename(tsv_file).split(".")[0]
-#         try:
-#             # Use scan_csv to lazily read the TSV and sink it to Parquet
-#             df = pl.scan_csv(tsv_file, separator='\t')
-#             parquet_file = os.path.join(tsv_dir, f"{bin_name}.parquet")
-
-#             logger.info(f"\nConverting {tsv_file}")
-#             df.sink_parquet(parquet_file,
-#                             compression="snappy",
-#                             row_group_size=row_group_size)
-#             logger.info(f"Converted {tsv_file} to {parquet_file}")
-
-#             # Add entries to the read index
-#             for row in df.collect().to_dict(as_series=False)["ReadName"]:
-#                 read_index[row] = parquet_file
-
-#             # Remove the TSV file after conversion
-#             os.remove(tsv_file)
-#             logger.info(f"Removed original TSV file: {tsv_file}")
-#             del df
-#             gc.collect()
-
-#         except Exception as e:
-#             logger.error(f"Error converting {tsv_file} to Parquet: {e}")
-
-#     # Save the index as a Parquet file
-#     if read_index:
-#         index_parquet_file = os.path.join(tsv_dir, "read_index.parquet")
-#         index_df = pl.DataFrame([{"ReadName": k, "ParquetFile": v} for k, v in read_index.items()])
-#         index_df.write_parquet(index_parquet_file)
-#         logger.info(f"Index file saved at {index_parquet_file}")
 
 def convert_tsv_to_parquet(tsv_dir, row_group_size=1000000):
     logger.info("Converting TSV files to Parquet files...")
