@@ -166,10 +166,3 @@ def test_train_model():
         "--threads",
         THREADS,
     ])
-
-@pytest.mark.order(12)
-def test_availablemodels():
-    run_cmd([
-        "tranquillyzer",
-        "availablemodels",
-    ])

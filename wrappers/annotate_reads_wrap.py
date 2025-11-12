@@ -1,0 +1,454 @@
+def load_libs():
+    import os
+    import gc
+    import time
+    import resource
+    import logging
+    import pickle
+    import pandas as pd
+    import multiprocessing as mp
+    from multiprocessing import Manager
+    from collections import defaultdict
+    import queue
+    import psutil
+    import polars as pl
+
+    from filelock import FileLock
+
+    from scripts.export_annotations import (
+        post_process_reads,
+        plot_read_n_cDNA_lengths,
+        )
+    from scripts.annotate_new_data import (
+        build_model, annotate_new_data_parallel,
+        calculate_total_rows,preprocess_sequences,
+        model_predictions,
+        estimate_average_read_length_from_bin
+        )
+    from scripts.preprocess_reads import (
+        parallel_preprocess_data,
+        find_sequence_files,
+        extract_and_bin_reads,
+        convert_tsv_to_parquet,
+        )
+    from scripts.trained_models import (
+        trained_models, seq_orders
+        )
+    from scripts.correct_barcodes import generate_barcodes_stats_pdf
+    from scripts.demultiplex import generate_demux_stats_pdf
+
+    return (os, gc, time, resource, logging, pickle, mp, Manager,
+            defaultdict, queue, psutil, pl, FileLock, pd,
+            model_predictions, post_process_reads,
+            seq_orders, estimate_average_read_length_from_bin,
+            calculate_total_rows, generate_barcodes_stats_pdf,
+            generate_demux_stats_pdf, plot_read_n_cDNA_lengths,
+            convert_tsv_to_parquet)
+
+
+def annotate_reads_wrap(output_dir, whitelist_file, output_fmt, 
+                        model_name, model_type, seq_order_file,
+                        chunk_size, gpu_mem, target_tokens,
+                        vram_headroom, min_batch_size, max_batch_size,
+                        bc_lv_threshold, threads, max_queue_size):
+    (os, gc, time, resource, logging, pickle, mp, Manager,
+     defaultdict, queue, psutil, pl, FileLock, pd,
+     model_predictions, post_process_reads,
+     seq_orders, estimate_average_read_length_from_bin,
+     calculate_total_rows, generate_barcodes_stats_pdf,
+     generate_demux_stats_pdf, plot_read_n_cDNA_lengths,
+     convert_tsv_to_parquet) = load_libs()
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s'
+    )
+    logger = logging.getLogger(__name__)
+    
+    start = time.time()
+
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    base_dir = os.path.abspath(os.path.join(base_dir, ".."))
+    models_dir = os.path.join(base_dir, "models")
+    models_dir = os.path.abspath(models_dir)
+
+    utils_dir = os.path.join(base_dir, "utils")
+    utils_dir = os.path.abspath(utils_dir)
+
+    if seq_order_file is None:
+        seq_order_file = os.path.join(utils_dir, "seq_orders.tsv")
+
+    model_path_w_CRF = None
+    model_path = None
+
+    if model_type == "REG" or model_type == "HYB":
+        model_path = f"{models_dir}/{model_name}.h5"
+        with open(f"{models_dir}/{model_name}_lbl_bin.pkl", "rb") as f:
+            label_binarizer = pickle.load(f)
+
+    seq_order, sequences, barcodes, UMIs, strand = seq_orders(seq_order_file, model_name)
+    whitelist_df = pd.read_csv(whitelist_file, sep='\t')
+    num_labels = len(seq_order)
+
+    base_folder_path = os.path.join(output_dir, "full_length_pp_fa")
+
+    invalid_output_file = os.path.join(output_dir, "annotations_invalid.tsv")
+    valid_output_file = os.path.join(output_dir, "annotations_valid.tsv")
+
+    parquet_files = sorted(
+        [os.path.join(base_folder_path, f) for f in os.listdir(base_folder_path)
+         if f.endswith('.parquet') and not f.endswith('read_index.parquet')],
+        key=lambda f: estimate_average_read_length_from_bin(os.path.basename(f).replace(".parquet", ""))
+    )
+
+    column_mapping = {barcode: barcode for barcode in barcodes}
+
+    whitelist_dict = {
+    "cell_ids": {
+        idx + 1: "-".join(map(str, row.dropna().unique()))
+        for idx, row in whitelist_df[list(column_mapping.values())].iterrows()
+    },
+    **{
+        input_column: whitelist_df[whitelist_column].dropna().unique().tolist()
+        for input_column, whitelist_column in column_mapping.items()
+        }
+    }
+    manager = Manager()
+    cumulative_barcodes_stats = manager.dict({barcode: {'count_data': manager.dict(),
+                                                        'min_dist_data': manager.dict()} for barcode in column_mapping.keys()})
+    match_type_counter = manager.dict()
+    cell_id_counter = manager.dict()
+
+    fasta_dir = os.path.join(output_dir, "demuxed_fasta")
+    os.makedirs(fasta_dir, exist_ok=True)
+
+    if output_fmt == "fastq":
+        logger.info("Selected output format: FASTQ")
+        demuxed_fasta = os.path.join(fasta_dir, "demuxed.fastq")
+        ambiguous_fasta = os.path.join(fasta_dir, "ambiguous.fastq")
+    elif output_fmt == "fasta":
+        logger.info("Selected output format: FASTA")
+        demuxed_fasta = os.path.join(fasta_dir, "demuxed.fasta")
+        ambiguous_fasta = os.path.join(fasta_dir, "ambiguous.fasta")
+
+    demuxed_fasta_lock = FileLock(demuxed_fasta + ".lock")
+    ambiguous_fasta_lock = FileLock(ambiguous_fasta + ".lock")
+
+    invalid_file_lock = FileLock(invalid_output_file + ".lock")
+    valid_file_lock = FileLock(valid_output_file + ".lock")
+
+    def post_process_worker(task_queue, strand, output_fmt, count, header_track, result_queue):
+        """Worker function for processing reads and returning results."""
+        while True:
+            try:
+                item = task_queue.get(timeout=10)
+                if item is None:
+                    break
+
+                parquet_file, bin_name, chunk_idx, predictions, read_names, reads, read_lengths, base_qualities = item
+
+                append = "w" if chunk_idx == 1 else "a"
+
+                local_cumulative_stats = {barcode: {'count_data': {}, 
+                                                    'min_dist_data': {}} for barcode in column_mapping.keys()}
+                local_match_counter, local_cell_counter = defaultdict(int), defaultdict(int)
+
+                checkpoint_file = os.path.join(output_dir, "annotation_checkpoint.txt")
+
+                with header_track.get_lock():
+                    add_header = header_track.value == 0
+
+                result = post_process_reads(
+                    reads, read_names, strand, output_fmt,
+                    base_qualities, model_type,
+                    pass_num, model_path_w_CRF,
+                    predictions, label_binarizer,
+                    local_cumulative_stats,
+                    read_lengths, seq_order,
+                    add_header, bin_name, chunk_idx, output_dir,
+                    invalid_output_file,
+                    invalid_file_lock, valid_output_file,
+                    valid_file_lock, barcodes,
+                    whitelist_df, whitelist_dict,
+                    bc_lv_threshold, checkpoint_file,
+                    1, local_match_counter,
+                    local_cell_counter, demuxed_fasta,
+                    demuxed_fasta_lock,
+                    ambiguous_fasta,
+                    ambiguous_fasta_lock, threads
+                )
+
+                if result:
+                    local_cumulative_stats, local_match_counter, local_cell_counter = result
+                    result_queue.put((local_cumulative_stats,
+                                      local_match_counter,
+                                      local_cell_counter,
+                                      bin_name))
+                else:
+                    logging.warning(f"No result from post_process_reads in {bin_name}, chunk {chunk_idx}")
+
+                with count.get_lock():
+                    count.value += 1
+
+                gc.collect()
+            except queue.Empty:
+                pass
+
+    num_workers = min(threads, mp.cpu_count() - 1)
+    max_queue_size = max(3, num_workers * 2)
+
+    def run_prediction_pipeline(result_queue, workers, max_idle_time=60):
+        idle_start = None
+        while any(worker.is_alive() for worker in workers) or not result_queue.empty():
+            try:
+                result = result_queue.get(timeout=15)
+                idle_start = None
+                if result:
+                    local_cumulative_stats, local_match_counter, local_cell_counter, bin_name = result
+                    for key, value in local_match_counter.items():
+                        match_type_counter[key] = match_type_counter.get(key, 0) + value
+                    for key, value in local_cell_counter.items():
+                        cell_id_counter[key] = cell_id_counter.get(key, 0) + value
+                    for barcode in local_cumulative_stats.keys():
+                        for stat in ["count_data", "min_dist_data"]:
+                            for key, value in local_cumulative_stats[barcode][stat].items():
+                                cumulative_barcodes_stats[barcode][stat][key]=cumulative_barcodes_stats[barcode][stat].get(key, 0) + value
+            except queue.Empty:
+                if idle_start is None:
+                    idle_start = time.time()
+                    logging.info("Result queue idle, waiting for worker results...")
+                elif time.time() - idle_start > max_idle_time:
+                    raise TimeoutError("Result queue timed out after no data for 60 seconds and no workers finished.")
+
+    if model_type == "REG" or model_type == "HYB":
+        task_queue = mp.Queue(maxsize=max_queue_size)
+        result_queue = mp.Queue()
+        count = mp.Value('i', 0)
+        header_track = mp.Value('i', 0)
+
+        pass_num = 1
+
+        logging.info(f"[Memory] RSS: {psutil.Process().memory_info().rss / 1e6:.2f} MB")
+
+        workers = [mp.Process(target=post_process_worker,
+                              args=(task_queue, strand, 
+                                    output_fmt, count,
+                                    header_track,
+                                    result_queue)) for _ in range(num_workers)]
+
+        logging.info(f"Number of workers = {len(workers)}")
+
+        for worker in workers:
+            worker.start()
+
+        # process all the reads with CNN-LSTM model first
+        logger.info("Starting first pass with regular model on all the reads")
+        for parquet_file in parquet_files:
+            for item in model_predictions(parquet_file, 1,
+                                          chunk_size, model_path,
+                                          model_path_w_CRF,
+                                          model_type,
+                                          num_labels,
+                                          user_total_gb=gpu_mem,
+                                          target_tokens_per_replica=target_tokens,
+                                          safety_margin=vram_headroom,
+                                          min_batch=min_batch_size,
+                                          max_batch=max_batch_size):
+                task_queue.put(item)
+                with header_track.get_lock():
+                    header_track.value += 1
+        logging.info(f"[Memory] RSS: {psutil.Process().memory_info().rss / 1e6:.2f} MB")
+
+        for _ in range(threads):
+            task_queue.put(None)
+
+        logging.info(f"[Memory] RSS: {psutil.Process().memory_info().rss / 1e6:.2f} MB")
+        run_prediction_pipeline(result_queue, workers)
+        logging.info(f"[Memory] RSS: {psutil.Process().memory_info().rss / 1e6:.2f} MB")
+
+        logger.info("Finished first pass with regular model on all the reads")
+
+        for worker in workers:
+            worker.join()
+
+        logging.info(f"[Memory] RSS: {psutil.Process().memory_info().rss / 1e6:.2f} MB")
+        model_path_w_CRF = f"{models_dir}/{model_name}_w_CRF.h5"
+
+        if model_type == "HYB":
+            tmp_invalid_dir = os.path.join(output_dir,
+                                           "tmp_invalid_reads")
+
+            convert_tsv_to_parquet(tmp_invalid_dir,
+                                   row_group_size=1000000)
+            invalid_parquet_files = sorted(
+                [os.path.join(tmp_invalid_dir, f) for f in os.listdir(tmp_invalid_dir) if f.endswith('.parquet') and not f.endswith('read_index.parquet')],
+                key=lambda f: estimate_average_read_length_from_bin(os.path.basename(f).replace(".parquet", ""))
+            )
+
+            with open(f"{models_dir}/{model_name}_w_CRF_lbl_bin.pkl", "rb") as f:
+                label_binarizer = pickle.load(f)
+
+            # if model type selcted is HYB, process the failed reads in step 1 with CNN-LSTM-CRF model
+            pass_num = 2
+            task_queue = mp.Queue(maxsize=max_queue_size)
+            result_queue = mp.Queue()
+
+            with count.get_lock():
+                count.value = 0
+
+            with header_track.get_lock():
+                header_track.value = 0
+
+            workers = [mp.Process(target=post_process_worker,
+                                  args=(task_queue, strand,
+                                        output_fmt, count,
+                                        header_track,
+                                        result_queue)) for _ in range(num_workers)]
+
+            for worker in workers:
+                worker.start()
+
+            logger.info("Starting second pass with CRF model on invalid reads")
+            for invalid_parquet_file in invalid_parquet_files:
+                if calculate_total_rows(invalid_parquet_file) >= 100:
+                    for item in model_predictions(invalid_parquet_file, 1,
+                                                  chunk_size, model_path,
+                                                  model_path_w_CRF,
+                                                  model_type, num_labels):
+                        task_queue.put(item)
+                        with header_track.get_lock():
+                            header_track.value += 1
+
+            for _ in range(threads):
+                task_queue.put(None)
+
+            run_prediction_pipeline(result_queue, workers)
+            logger.info("Finished second pass with CRF model on invalid reads")
+
+            for worker in workers:
+                worker.join()
+
+    if model_type == "CRF":
+        # process all the reads with CNN-LSTM-CRF model
+        model_path_w_CRF = f"{models_dir}/{model_name}_w_CRF.h5"
+
+        with open(f"{models_dir}/{model_name}_w_CRF_lbl_bin.pkl", "rb") as f:
+            label_binarizer = pickle.load(f)
+
+        task_queue = mp.Queue(maxsize=max_queue_size)
+        result_queue = mp.Queue()
+        count = mp.Value('i', 0)
+        header_track = mp.Value('i', 0)
+
+        pass_num = 1
+
+        workers = [mp.Process(target=post_process_worker,
+                              args=(task_queue, strand,
+                                    output_fmt, count,
+                                    header_track,
+                                    result_queue)) for _ in range(num_workers)]
+
+        for worker in workers:
+            worker.start()
+
+        logger.info("Starting first pass with CRF model on all the reads")
+        for parquet_file in parquet_files:
+            for item in model_predictions(parquet_file, 1,
+                                          chunk_size, None,
+                                          model_path_w_CRF,
+                                          model_type, num_labels):
+                task_queue.put(item)
+                with header_track.get_lock():
+                    header_track.value += 1
+
+        for _ in range(threads):
+            task_queue.put(None)
+
+        run_prediction_pipeline(result_queue, workers)
+
+        logger.info("Finished first pass with CRF model on all the reads")
+
+        for worker in workers:
+            worker.join()
+            worker.close()
+
+    cumulative_barcodes_stats = {k: {'count_data': dict(v['count_data']),
+                                     'min_dist_data': dict(v['min_dist_data'])} for k, v in cumulative_barcodes_stats.items()}
+
+    os.makedirs(f"{output_dir}/plots", exist_ok=True)
+
+    logger.info("Generating barcode stats plots")
+    generate_barcodes_stats_pdf(cumulative_barcodes_stats, list(column_mapping.keys()),
+                                pdf_filename=f"{output_dir}/plots/barcode_plots.pdf")
+    logger.info("Generated barcode stats plots")
+
+    logger.info("Generating demux stats plots")
+    generate_demux_stats_pdf(f"{output_dir}/plots/demux_plots.pdf",
+                             f"{output_dir}/matchType_readCount.tsv",
+                             f"{output_dir}/cellId_readCount.tsv",
+                             match_type_counter, cell_id_counter)
+    logger.info("Generated demux stats plots")
+
+    if os.path.exists(f"{output_dir}/annotations_valid.tsv"):
+        with open(f"{output_dir}/annotations_valid.tsv", 'r') as f:
+            header = f.readline().strip().split('\t')
+            dtypes = {col: pl.Utf8 for col in header if col != "read_length"}
+            dtypes["read_length"] = pl.Int64
+
+        df = pl.scan_csv(f"{output_dir}/annotations_valid.tsv",
+                         separator='\t',
+                         dtypes=dtypes)
+        annotations_valid_parquet_file = f"{output_dir}/annotations_valid.parquet"
+        logger.info("Converting annotations_valid.tsv")
+        df.sink_parquet(annotations_valid_parquet_file,
+                        compression="snappy",
+                        row_group_size=chunk_size)
+        logger.info("Converted annotations_valid.tsv to annotations_valid.parquet")
+        os.system(f"rm {output_dir}/annotations_valid.tsv")
+        os.system(f"rm {output_dir}/annotations_valid.tsv.lock")
+
+        logger.info("Generating valid read length and cDNA length distribution plots")
+        plot_read_n_cDNA_lengths(output_dir)
+        logger.info("Generated valid read length and cDNA length distribution plots")
+        del df
+    else:
+        logger.warning("annotations_valid.tsv not found. Skipping Parquet conversion.")
+
+    if os.path.exists(f"{output_dir}/annotations_invalid.tsv"):
+        logger.info("annotations_invalid.tsv found — proceeding with Parquet conversion")
+        with open(f"{output_dir}/annotations_invalid.tsv", 'r') as f:
+            header = f.readline().strip().split('\t')
+        dtypes = {col: pl.Utf8 for col in header if col != "read_length"}
+        dtypes["read_length"] = pl.Int64
+
+        df = pl.scan_csv(f"{output_dir}/annotations_invalid.tsv",
+                         separator='\t',
+                         dtypes=dtypes)
+        annotations_invalid_parquet_file = f"{output_dir}/annotations_invalid.parquet"
+        logger.info("Converting annotations_invalid.tsv")
+        df.sink_parquet(annotations_invalid_parquet_file,
+                        compression="snappy",
+                        row_group_size=chunk_size)
+        logger.info("Converted annotations_invalid.tsv to annotations_invalid.parquet")
+        os.system(f"rm {output_dir}/annotations_invalid.tsv")
+        os.system(f"rm {output_dir}/annotations_invalid.tsv.lock")
+        del df
+    else:
+        logger.warning("annotations_invalid.tsv not found. Skipping Parquet conversion.")
+
+    if os.path.exists(f"{output_dir}/demuxed_fasta/demuxed.fasta.lock"):
+        os.system(f"rm {output_dir}/demuxed_fasta/demuxed.fasta.lock")
+    if os.path.exists(f"{output_dir}/demuxed_fasta/ambiguous.fasta.lock"):
+        os.system(f"rm {output_dir}/demuxed_fasta/ambiguous.fasta.lock")
+    if os.path.exists(f"{output_dir}/demuxed_fasta/demuxed.fastq.lock"):
+        os.system(f"rm {output_dir}/demuxed_fasta/demuxed.fastq.lock")
+    if os.path.exists(f"{output_dir}/demuxed_fasta/ambiguous.fastq.lock"):
+        os.system(f"rm {output_dir}/demuxed_fasta/ambiguous.fastq.lock")
+
+    if model_type == "HYB":
+        os.system(f"rm -r {output_dir}/tmp_invalid_reads")
+
+    usage = resource.getrusage(resource.RUSAGE_CHILDREN)
+    max_rss_mb = usage.ru_maxrss / 1024 if os.uname().sysname == "Linux" else usage.ru_maxrss  # Linux gives KB
+    logger.info(f"Peak memory usage during annotation/barcode correction/demuxing: {max_rss_mb:.2f} MB")
+    logger.info(f"Elapsed time: {time.time() - start:.2f} seconds")
