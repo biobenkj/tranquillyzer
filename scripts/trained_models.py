@@ -99,6 +99,8 @@ def seq_orders(file_path, model):
             #       but this isn't an ideal long term solution
             raise Exception(f"Requested model ({model}) not found")
 
+    # Because we're catching the exception we just raised, this message will always print, even if we're
+    # "handling" things downstream. This really needs an error handling system set up
     except Exception as e:
         print(f"An error occurred: {e}")
 
