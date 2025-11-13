@@ -15,13 +15,36 @@ def trained_models():
             print(f"The directory '{models_dir}' does not exist.")
             return
 
-        print("\n ~~~~~~~~~~~~~~~~ CURRENTLY AVAILABLE TRAINED MODELS ~~~~~~~~~~~~~~~~\n")
+        print("\n~~~~~~~~~~~~~~~~ CURRENTLY AVAILABLE TRAINED MODELS ~~~~~~~~~~~~~~~~\n")
         # Iterate over all files in the directory
         for file_name in os.listdir(models_dir):
             # Check if the file has a .h5 extension
             if file_name.endswith('.h5'):
-                seq_order, sequences, barcodes, UMIs, orientation = seq_orders(os.path.join(utils_dir, "seq_orders.tsv"), file_name[:-3])
-                print("-- " + file_name[:-3] + " \t layout ==> " + ','.join(map(str, seq_order)) + " \n\t\t\t sequences ==> " + ','.join(map(str, sequences)) + "\n")
+                try:
+                    seq_order, sequences, barcodes, UMIs, orientation = seq_orders(os.path.join(utils_dir, "seq_orders.tsv"), file_name[:-3])
+                    print(
+                        " ".join(
+                            [
+                                "--",
+                                file_name[:-3],
+                                "\t layout ==>",
+                                ','.join(map(str, seq_order)),
+                                "\n\t\t\t sequences ==>",
+                                ','.join(map(str, sequences)),
+                                "\n"
+                            ]
+                        )
+                    )
+                except Exception:
+                    print(
+                        " ".join(
+                            [
+                                "--",
+                                file_name[:-3],
+                                " ==> model exists in models/ directory but is undefined in utils/seq_orders.tsv\n",
+                            ]
+                        )
+                    )
         print("\n")
 
     except Exception as e:
