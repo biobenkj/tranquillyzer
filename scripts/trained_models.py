@@ -15,37 +15,44 @@ def trained_models():
             print(f"The directory '{models_dir}' does not exist.")
             return
 
-        print("\n~~~~~~~~~~~~~~~~ CURRENTLY AVAILABLE TRAINED MODELS ~~~~~~~~~~~~~~~~\n")
+        print("\n~~~~~~~~~~~~~~~~ CURRENTLY AVAILABLE TRAINED MODELS ~~~~~~~~~~~~~~~~")
+        print(
+            "\n".join(
+                [
+                    "-- Sequence Key:",
+                    "\tNX ==> unknown sequence of length X",
+                    "\tNN ==> unknown sequence of unknown length",
+                    "\tA  ==> sequence of A's of unknown length",
+                    "\tT  ==> sequence of T's of unknown length",
+                    "", # adds in an extra new line between key and models
+                ]
+            )
+        )
+
         # Iterate over all files in the directory
         for file_name in os.listdir(models_dir):
             # Check if the file has a .h5 extension
             if file_name.endswith('.h5'):
                 try:
                     seq_order, sequences, barcodes, UMIs, orientation = seq_orders(os.path.join(utils_dir, "seq_orders.tsv"), file_name[:-3])
-                    print(
-                        " ".join(
-                            [
-                                "--",
-                                file_name[:-3],
-                                "\t layout ==>",
-                                ','.join(map(str, seq_order)),
-                                "\n\t\t\t sequences ==>",
-                                ','.join(map(str, sequences)),
-                                "\n"
-                            ]
-                        )
-                    )
+
+                    # Find longest seq_order name
+                    longest = max([len(x) for x in seq_order])
+
+                    # Build up elements to be printed
+                    print_elements = [
+                        f"-- {file_name[:-3]}",
+                        "\tlayout (top to bottom) ==> sequence"
+                    ]
+
+                    for i in range(len(seq_order)):
+                        print_elements.append(f"\t{seq_order[i]:<{longest}} ==> {sequences[i]}")
+
+                    print_elements.append("") # adds in an extra new line between models
+
+                    print("\n".join(print_elements))
                 except Exception:
-                    print(
-                        " ".join(
-                            [
-                                "--",
-                                file_name[:-3],
-                                " ==> model exists in models/ directory but is undefined in utils/seq_orders.tsv\n",
-                            ]
-                        )
-                    )
-        print("\n")
+                    print(f"-- {file_name[:-3]}\n\t==> model exists in models/ directory but is undefined in utils/seq_orders.tsv\n")
 
     except Exception as e:
         print(f"An error occurred: {e}")
