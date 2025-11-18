@@ -18,22 +18,14 @@ def load_libs():
     from scripts.export_annotations import (
         post_process_reads,
         plot_read_n_cDNA_lengths,
-        )
+    )
     from scripts.annotate_new_data import (
-        build_model, annotate_new_data_parallel,
-        calculate_total_rows,preprocess_sequences,
+        calculate_total_rows,
         model_predictions,
-        estimate_average_read_length_from_bin
-        )
-    from scripts.preprocess_reads import (
-        parallel_preprocess_data,
-        find_sequence_files,
-        extract_and_bin_reads,
-        convert_tsv_to_parquet,
-        )
-    from scripts.trained_models import (
-        trained_models, seq_orders
-        )
+        estimate_average_read_length_from_bin,
+    )
+    from scripts.preprocess_reads import convert_tsv_to_parquet
+    from scripts.trained_models import seq_orders
     from scripts.correct_barcodes import generate_barcodes_stats_pdf
     from scripts.demultiplex import generate_demux_stats_pdf
 
@@ -46,7 +38,7 @@ def load_libs():
             convert_tsv_to_parquet)
 
 
-def annotate_reads_wrap(output_dir, whitelist_file, output_fmt, 
+def annotate_reads_wrap(output_dir, whitelist_file, output_fmt,
                         model_name, model_type, seq_order_file,
                         chunk_size, gpu_mem, target_tokens,
                         vram_headroom, min_batch_size, max_batch_size,
@@ -64,7 +56,7 @@ def annotate_reads_wrap(output_dir, whitelist_file, output_fmt,
         format='%(asctime)s - %(levelname)s - %(message)s'
     )
     logger = logging.getLogger(__name__)
-    
+
     start = time.time()
 
     base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -147,9 +139,7 @@ def annotate_reads_wrap(output_dir, whitelist_file, output_fmt,
 
                 parquet_file, bin_name, chunk_idx, predictions, read_names, reads, read_lengths, base_qualities = item
 
-                append = "w" if chunk_idx == 1 else "a"
-
-                local_cumulative_stats = {barcode: {'count_data': {}, 
+                local_cumulative_stats = {barcode: {'count_data': {},
                                                     'min_dist_data': {}} for barcode in column_mapping.keys()}
                 local_match_counter, local_cell_counter = defaultdict(int), defaultdict(int)
 
@@ -231,7 +221,7 @@ def annotate_reads_wrap(output_dir, whitelist_file, output_fmt,
         logging.info(f"[Memory] RSS: {psutil.Process().memory_info().rss / 1e6:.2f} MB")
 
         workers = [mp.Process(target=post_process_worker,
-                              args=(task_queue, strand, 
+                              args=(task_queue, strand,
                                     output_fmt, count,
                                     header_track,
                                     result_queue)) for _ in range(num_workers)]
