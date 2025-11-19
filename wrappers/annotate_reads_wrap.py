@@ -129,16 +129,20 @@ def annotate_reads_wrap(output_dir, whitelist_file, output_fmt,
         key=lambda f: estimate_average_read_length_from_bin(os.path.basename(f).replace(".parquet", ""))
     )
 
+    # TODO: This entire object could be dropped and use the barcodes list as it comes
+    #       from seq_orders. There is only one location where both the key and value are
+    #       used from the dictionary. Since its the same value though, we really don't
+    #       need to double store these values
     column_mapping = {barcode: barcode for barcode in barcodes}
 
     whitelist_dict = {
-    "cell_ids": {
-        idx + 1: "-".join(map(str, row.dropna().unique()))
-        for idx, row in whitelist_df[list(column_mapping.values())].iterrows()
-    },
-    **{
-        input_column: whitelist_df[whitelist_column].dropna().unique().tolist()
-        for input_column, whitelist_column in column_mapping.items()
+        "cell_ids": {
+            idx + 1: "-".join(map(str, row.dropna().unique()))
+            for idx, row in whitelist_df[list(column_mapping.values())].iterrows()
+        },
+        **{
+            input_column: whitelist_df[whitelist_column].dropna().unique().tolist()
+            for input_column, whitelist_column in column_mapping.items()
         }
     }
     manager = Manager()
