@@ -37,6 +37,42 @@ def load_libs():
             generate_demux_stats_pdf, plot_read_n_cDNA_lengths,
             convert_tsv_to_parquet)
 
+def collect_prediction_stats(result_queue, workers, match_type_counter, cell_id_counter, cumulative_barcodes_stats, max_idle_time=60):
+    """Collect results from each model prediction and collate into shared stats"""
+    idle_start = None
+
+    while any(worker.is_alive() for worker in workers) or not result_queue.empty():
+        try:
+            result = result_queue.get(timeout=15)
+
+            # Reset idle start since a new result has been retrieved
+            idle_start = None
+
+            if result:
+                local_cumulative_stats, local_match_counter, local_cell_counter, _ = result
+
+                # Count how (all matched, majority matched, ambiguous, etc.) barcodes match
+                for key, value in local_match_counter.items():
+                    match_type_counter[key] = match_type_counter.get(key, 0) + value
+
+                # Number of reads per demuxed cell
+                for key, value in local_cell_counter.items():
+                    cell_id_counter[key] = cell_id_counter.get(key, 0) + value
+
+                # Stats for barcode matching
+                for barcode in local_cumulative_stats.keys():
+                    for stat in ["count_data", "min_dist_data"]:
+                        for key, value in local_cumulative_stats[barcode][stat].items():
+                            cumulative_barcodes_stats[barcode][stat][key]=cumulative_barcodes_stats[barcode][stat].get(key, 0) + value
+        except queue.Empty:
+            # Wait for the queue to get more entries
+            if idle_start is None:
+                idle_start = time.time()
+                logging.info("Result queue idle, waiting for worker results...")
+            elif time.time() - idle_start > max_idle_time:
+                raise TimeoutError(
+                    f"Result queue timed out after no data for {max_idle_time} seconds and no workers finished."
+                )
 
 def annotate_reads_wrap(output_dir, whitelist_file, output_fmt,
                         model_name, model_type, seq_order_file,
@@ -187,29 +223,6 @@ def annotate_reads_wrap(output_dir, whitelist_file, output_fmt,
     num_workers = min(threads, mp.cpu_count() - 1)
     max_queue_size = max(3, num_workers * 2)
 
-    def run_prediction_pipeline(result_queue, workers, max_idle_time=60):
-        idle_start = None
-        while any(worker.is_alive() for worker in workers) or not result_queue.empty():
-            try:
-                result = result_queue.get(timeout=15)
-                idle_start = None
-                if result:
-                    local_cumulative_stats, local_match_counter, local_cell_counter, bin_name = result
-                    for key, value in local_match_counter.items():
-                        match_type_counter[key] = match_type_counter.get(key, 0) + value
-                    for key, value in local_cell_counter.items():
-                        cell_id_counter[key] = cell_id_counter.get(key, 0) + value
-                    for barcode in local_cumulative_stats.keys():
-                        for stat in ["count_data", "min_dist_data"]:
-                            for key, value in local_cumulative_stats[barcode][stat].items():
-                                cumulative_barcodes_stats[barcode][stat][key]=cumulative_barcodes_stats[barcode][stat].get(key, 0) + value
-            except queue.Empty:
-                if idle_start is None:
-                    idle_start = time.time()
-                    logging.info("Result queue idle, waiting for worker results...")
-                elif time.time() - idle_start > max_idle_time:
-                    raise TimeoutError("Result queue timed out after no data for 60 seconds and no workers finished.")
-
     if model_type == "REG" or model_type == "HYB":
         task_queue = mp.Queue(maxsize=max_queue_size)
         result_queue = mp.Queue()
@@ -253,7 +266,7 @@ def annotate_reads_wrap(output_dir, whitelist_file, output_fmt,
             task_queue.put(None)
 
         logging.info(f"[Memory] RSS: {psutil.Process().memory_info().rss / 1e6:.2f} MB")
-        run_prediction_pipeline(result_queue, workers)
+        collect_prediction_stats(result_queue, workers, match_type_counter, cell_id_counter, cumulative_barcodes_stats)
         logging.info(f"[Memory] RSS: {psutil.Process().memory_info().rss / 1e6:.2f} MB")
 
         logger.info("Finished first pass with regular model on all the reads")
@@ -312,7 +325,7 @@ def annotate_reads_wrap(output_dir, whitelist_file, output_fmt,
             for _ in range(threads):
                 task_queue.put(None)
 
-            run_prediction_pipeline(result_queue, workers)
+            collect_prediction_stats(result_queue, workers, match_type_counter, cell_id_counter, cumulative_barcodes_stats)
             logger.info("Finished second pass with CRF model on invalid reads")
 
             for worker in workers:
@@ -354,7 +367,7 @@ def annotate_reads_wrap(output_dir, whitelist_file, output_fmt,
         for _ in range(threads):
             task_queue.put(None)
 
-        run_prediction_pipeline(result_queue, workers)
+        collect_prediction_stats(result_queue, workers, match_type_counter, cell_id_counter, cumulative_barcodes_stats)
 
         logger.info("Finished first pass with CRF model on all the reads")
 
