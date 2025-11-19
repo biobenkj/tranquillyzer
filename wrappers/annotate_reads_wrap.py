@@ -95,6 +95,7 @@ def annotate_reads_wrap(output_dir, whitelist_file, output_fmt,
 
     start = time.time()
 
+    # Read / create / prepare input files and directories
     base_dir = os.path.dirname(os.path.abspath(__file__))
     base_dir = os.path.abspath(os.path.join(base_dir, ".."))
     models_dir = os.path.join(base_dir, "models")
@@ -106,6 +107,8 @@ def annotate_reads_wrap(output_dir, whitelist_file, output_fmt,
     if seq_order_file is None:
         seq_order_file = os.path.join(utils_dir, "seq_orders.tsv")
 
+    # TODO: model_path and model_path_w_CRF can probably be moved into the model if-statement
+    #       This may have to wait until post_process_worker has been moved out of this function though
     model_path_w_CRF = None
     model_path = None
 
@@ -129,34 +132,6 @@ def annotate_reads_wrap(output_dir, whitelist_file, output_fmt,
         key=lambda f: estimate_average_read_length_from_bin(os.path.basename(f).replace(".parquet", ""))
     )
 
-    # TODO: This entire object could be dropped and use the barcodes list as it comes
-    #       from seq_orders. There is only one location where both the key and value are
-    #       used from the dictionary. Since its the same value though, we really don't
-    #       need to double store these values
-    column_mapping = {barcode: barcode for barcode in barcodes}
-
-    whitelist_dict = {
-        "cell_ids": {
-            idx + 1: "-".join(map(str, row.dropna().unique()))
-            for idx, row in whitelist_df[list(column_mapping.values())].iterrows()
-        },
-        **{
-            input_column: whitelist_df[whitelist_column].dropna().unique().tolist()
-            for input_column, whitelist_column in column_mapping.items()
-        }
-    }
-    manager = Manager()
-    cumulative_barcodes_stats = manager.dict(
-        {
-            barcode: {
-                'count_data': manager.dict(),
-                'min_dist_data': manager.dict(),
-            } for barcode in column_mapping.keys()
-        }
-    )
-    match_type_counter = manager.dict()
-    cell_id_counter = manager.dict()
-
     fasta_dir = os.path.join(output_dir, "demuxed_fasta")
     os.makedirs(fasta_dir, exist_ok=True)
 
@@ -175,6 +150,36 @@ def annotate_reads_wrap(output_dir, whitelist_file, output_fmt,
     invalid_file_lock = FileLock(invalid_output_file + ".lock")
     valid_file_lock = FileLock(valid_output_file + ".lock")
 
+    # TODO: This entire object could be dropped and use the barcodes list as it comes
+    #       from seq_orders. There is only one location where both the key and value are
+    #       used from the dictionary. Since its the same value though, we really don't
+    #       need to double store these values
+    column_mapping = {barcode: barcode for barcode in barcodes}
+
+    whitelist_dict = {
+        "cell_ids": {
+            idx + 1: "-".join(map(str, row.dropna().unique()))
+            for idx, row in whitelist_df[list(column_mapping.values())].iterrows()
+        },
+        **{
+            input_column: whitelist_df[whitelist_column].dropna().unique().tolist()
+            for input_column, whitelist_column in column_mapping.items()
+        }
+    }
+
+    # Create objects shared across processes
+    manager = Manager()
+    cumulative_barcodes_stats = manager.dict(
+        {
+            barcode: {
+                'count_data': manager.dict(),
+                'min_dist_data': manager.dict(),
+            } for barcode in column_mapping.keys()
+        }
+    )
+    match_type_counter = manager.dict()
+    cell_id_counter = manager.dict()
+
     def post_process_worker(task_queue, strand, output_fmt, count, header_track, result_queue):
         """Worker function for processing reads and returning results."""
         while True:
@@ -189,11 +194,32 @@ def annotate_reads_wrap(output_dir, whitelist_file, output_fmt,
                                                     'min_dist_data': {}} for barcode in column_mapping.keys()}
                 local_match_counter, local_cell_counter = defaultdict(int), defaultdict(int)
 
+                # FIXME: output_dir comes from outer function
                 checkpoint_file = os.path.join(output_dir, "annotation_checkpoint.txt")
 
                 with header_track.get_lock():
                     add_header = header_track.value == 0
 
+                # FIXME: these variables come from outer function:
+                # -- model_type
+                # -- pass_num
+                # -- model_path_w_CRF
+                # -- label_binarizer
+                # -- seq_order
+                # -- output_dir
+                # -- invalid_output_file
+                # -- invalid_file_lock
+                # -- valid_output_file
+                # -- valid_file_lock
+                # -- barcodes
+                # -- whitelist_df
+                # -- whitelist_dict
+                # -- bc_lv_threshold
+                # -- demuxed_fasta
+                # -- demuxed_fasta_lock
+                # -- ambiguous_fasta
+                # -- ambiguous_fasta_lock
+                # -- threads
                 result = post_process_reads(
                     reads, read_names, strand, output_fmt,
                     base_qualities, model_type,
