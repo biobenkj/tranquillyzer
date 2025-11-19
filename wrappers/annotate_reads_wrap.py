@@ -142,8 +142,14 @@ def annotate_reads_wrap(output_dir, whitelist_file, output_fmt,
         }
     }
     manager = Manager()
-    cumulative_barcodes_stats = manager.dict({barcode: {'count_data': manager.dict(),
-                                                        'min_dist_data': manager.dict()} for barcode in column_mapping.keys()})
+    cumulative_barcodes_stats = manager.dict(
+        {
+            barcode: {
+                'count_data': manager.dict(),
+                'min_dist_data': manager.dict(),
+            } for barcode in column_mapping.keys()
+        }
+    )
     match_type_counter = manager.dict()
     cell_id_counter = manager.dict()
 
@@ -375,8 +381,13 @@ def annotate_reads_wrap(output_dir, whitelist_file, output_fmt,
             worker.join()
             worker.close()
 
-    cumulative_barcodes_stats = {k: {'count_data': dict(v['count_data']),
-                                     'min_dist_data': dict(v['min_dist_data'])} for k, v in cumulative_barcodes_stats.items()}
+    # Convert shared dictionary to a standard dictionary
+    # Each key of the inner dictionary is its own shared dictionary, so convert those as well
+    cumulative_barcodes_stats = {
+        k: {
+            stat: dict(stat_dict) for stat, stat_dict in inner.items()
+        } for k, inner in cumulative_barcodes_stats.items()
+    }
 
     os.makedirs(f"{output_dir}/plots", exist_ok=True)
 
