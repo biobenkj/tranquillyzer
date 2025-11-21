@@ -21,9 +21,9 @@ def introduce_errors_with_labels_context(sequence, label, mismatch_rate,
             local_insertion_rate = polyT_error_rate
             local_deletion_rate = polyT_error_rate
         elif lbl == 'ACC' or lbl == 'cDNA':
-            local_mismatch_rate = 0.02
-            local_insertion_rate = 0.02
-            local_deletion_rate = 0.02
+            local_mismatch_rate = 0
+            local_insertion_rate = 0
+            local_deletion_rate = 0
         else:
             local_mismatch_rate = mismatch_rate
             local_insertion_rate = insertion_rate
@@ -70,7 +70,7 @@ def generate_segment(segment_type, segment_pattern,
         sequence = fragment
         label = ["cDNA"] * len(sequence)
     elif segment_pattern == "RN" and segment_type == "cDNA":
-        length = np.random.randint(5, 50)
+        length = np.random.randint(0, 50)
         if transcriptome_records:
             transcript = random.choice(transcriptome_records)
             transcript_seq = str(transcript.seq)
@@ -116,66 +116,183 @@ def reverse_labels(labels):
 ############## generate invalid read with multiple corruption types ##############
 
 
+# def generate_invalid_read(segments_order, segments_patterns,
+#                           length_range, transcriptome_records):
+#     # corruption_type = random.choice([
+#     #     "concat", "repeat_adapter_5p",
+#     #     "repeat_adapter_3p",
+#     # ])
+
+#     corruption_type = random.choice([
+#         "concat"
+#     ])
+
+#     if corruption_type == "concat":
+#         read1, label1 = generate_valid_read(segments_order,
+#                                             segments_patterns,
+#                                             length_range,
+#                                             transcriptome_records)
+#         read2, label2 = generate_valid_read(segments_order,
+#                                             segments_patterns,
+#                                             length_range,
+#                                             transcriptome_records)
+
+#         # Randomly reverse or reverse complement second read
+#         strand_flip = random.choices(["none", "reverse", "revcomp"],
+#                                      weights=[0.5, 0.25, 0.25])[0]
+   
+#         if strand_flip == "reverse":
+#             read2 = read2[::-1]
+#             label2 = label2[::-1]
+#         if strand_flip == "revcomp":
+#             read2 = reverse_complement(read2)
+#             label2 = label2[::-1]  # reverse label direction to match RC
+
+#         return read1 + read2, label1 + label2
+
+#     elif corruption_type == "repeat_adapter_5p":
+#         adapter_seq, adapter_label = generate_segment(segments_order[1],
+#                                                       segments_patterns[1],
+#                                                       length_range,
+#                                                       transcriptome_records)
+#         repeated_adapter = adapter_seq * 3
+#         repeated_labels = [adapter_label[0]] * len(repeated_adapter)
+#         read, label = generate_valid_read(segments_order,
+#                                           segments_patterns,
+#                                           length_range,
+#                                           transcriptome_records)
+#         return repeated_adapter + read, repeated_labels + label
+
+#     elif corruption_type == "repeat_adapter_3p":
+#         adapter_seq, adapter_label = generate_segment(segments_order[-2],
+#                                                       segments_patterns[-2],
+#                                                       length_range,
+#                                                       transcriptome_records)
+#         repeated_adapter = adapter_seq * 3
+#         repeated_labels = [adapter_label[0]] * len(repeated_adapter)
+#         read, label = generate_valid_read(segments_order,
+#                                           segments_patterns,
+#                                           length_range,
+#                                           transcriptome_records)
+#         return repeated_adapter + read, repeated_labels + label
+
 def generate_invalid_read(segments_order, segments_patterns,
                           length_range, transcriptome_records):
-    # corruption_type = random.choice([
-    #     "concat", "repeat_adapter_5p",
-    #     "repeat_adapter_3p",
-    # ])
-
     corruption_type = random.choice([
-        "concat"
+        "concat", "repeat_adapter_5p",
+        "repeat_adapter_3p", "truncate_5p", "truncate_3p"
     ])
 
+    # corruption_type = random.choice([
+    #     "concat", "truncate_5p", "truncate_3p"
+    # ])
+
     if corruption_type == "concat":
-        read1, label1 = generate_valid_read(segments_order,
-                                            segments_patterns,
-                                            length_range,
-                                            transcriptome_records)
-        read2, label2 = generate_valid_read(segments_order,
-                                            segments_patterns,
-                                            length_range,
-                                            transcriptome_records)
+        read1, label1 = generate_valid_read(
+            segments_order,
+            segments_patterns,
+            length_range,
+            transcriptome_records
+        )
+        read2, label2 = generate_valid_read(
+            segments_order,
+            segments_patterns,
+            length_range,
+            transcriptome_records
+        )
 
         # Randomly reverse or reverse complement second read
-        strand_flip = random.choices(["none", "reverse", "revcomp"],
-                                     weights=[0.5, 0.25, 0.25])[0]
-   
+        strand_flip = random.choices(
+            ["none", "reverse", "revcomp"],
+            weights=[0.5, 0.25, 0.25]
+        )[0]
+
         if strand_flip == "reverse":
             read2 = read2[::-1]
             label2 = label2[::-1]
-        if strand_flip == "revcomp":
+        elif strand_flip == "revcomp":
             read2 = reverse_complement(read2)
-            label2 = label2[::-1]  # reverse label direction to match RC
+            # labels follow the reversed orientation
+            label2 = label2[::-1]
 
         return read1 + read2, label1 + label2
 
     elif corruption_type == "repeat_adapter_5p":
-        adapter_seq, adapter_label = generate_segment(segments_order[1],
-                                                      segments_patterns[1],
-                                                      length_range,
-                                                      transcriptome_records)
+        adapter_seq, adapter_label = generate_segment(
+            segments_order[1],
+            segments_patterns[1],
+            length_range,
+            transcriptome_records
+        )
         repeated_adapter = adapter_seq * 3
         repeated_labels = [adapter_label[0]] * len(repeated_adapter)
-        read, label = generate_valid_read(segments_order,
-                                          segments_patterns,
-                                          length_range,
-                                          transcriptome_records)
+
+        read, label = generate_valid_read(
+            segments_order,
+            segments_patterns,
+            length_range,
+            transcriptome_records
+        )
         return repeated_adapter + read, repeated_labels + label
 
     elif corruption_type == "repeat_adapter_3p":
-        adapter_seq, adapter_label = generate_segment(segments_order[-2],
-                                                      segments_patterns[-2],
-                                                      length_range,
-                                                      transcriptome_records)
+        adapter_seq, adapter_label = generate_segment(
+            segments_order[-2],
+            segments_patterns[-2],
+            length_range,
+            transcriptome_records
+        )
         repeated_adapter = adapter_seq * 3
         repeated_labels = [adapter_label[0]] * len(repeated_adapter)
-        read, label = generate_valid_read(segments_order,
-                                          segments_patterns,
-                                          length_range,
-                                          transcriptome_records)
-        return repeated_adapter + read, repeated_labels + label
 
+        read, label = generate_valid_read(
+            segments_order,
+            segments_patterns,
+            length_range,
+            transcriptome_records
+        )
+        return read + repeated_adapter, label + repeated_labels
+
+    # ----------------------
+    # Truncation artifacts
+    # ----------------------
+    elif corruption_type in ("truncate_5p", "truncate_3p"):
+        read, label = generate_valid_read(
+            segments_order,
+            segments_patterns,
+            length_range,
+            transcriptome_records
+        )
+
+        read_len = len(read)
+        if read_len <= 1:
+            # Fallback: if something degenerate happens, just return the read
+            return read, label
+
+        # Keep at least some fraction of the read so it's not empty
+        min_fraction_kept = 0.3  # you can tune this
+        max_trunc = max(1, int(read_len * (1 - min_fraction_kept)))
+
+        # If read is extremely short, avoid truncation turning it invalid for your code
+        if max_trunc >= read_len:
+            max_trunc = read_len - 1
+
+        trunc_len = random.randint(1, max_trunc)
+
+        if corruption_type == "truncate_5p":
+            # Drop bases from the 5' end
+            new_read = read[trunc_len:]
+            new_label = label[trunc_len:]
+        else:  # "truncate_3p"
+            # Drop bases from the 3' end
+            new_read = read[:-trunc_len]
+            new_label = label[:-trunc_len]
+
+        # Safety: in case truncation wiped everything out
+        if len(new_read) == 0:
+            return read, label
+
+        return new_read, new_label
 
 ############## simulate complete batch ##############
 
