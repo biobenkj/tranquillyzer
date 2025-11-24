@@ -5,7 +5,52 @@ os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 import warnings
 warnings.filterwarnings('ignore', category=UserWarning, module='tensorflow')
 
+# =========================
+# versioning and app setup
+# =========================
+
+
+try:
+    from importlib.metadata import version, PackageNotFoundError
+except ImportError:
+    from importlib_metadata import version, PackageNotFoundError  # type: ignore[assignment]
+
+
+def get_version() -> str:
+    try:
+        return version("tranquillyzer")
+    except PackageNotFoundError:
+        return "unknown"
+
+
 app = typer.Typer(rich_markup_mode="rich")
+
+
+def version_callback(value: bool) -> None:
+    if value:
+        typer.echo(f"tranquillyzer {get_version()}")
+        raise typer.Exit()
+
+
+@app.callback(invoke_without_command=True)
+def main(
+    ctx: typer.Context,
+    version: bool = typer.Option(
+        False,
+        "--version",
+        help="Show version and exit",
+        callback=version_callback,
+        is_eager=True,
+    ),
+) -> None:
+    """Tranquillyzer command-line interface."""
+    # Print version banner for all invocations
+    typer.echo(f"\nTranquillyzer:v{get_version()}")
+
+    # If invoked without a subcommand → show top-level help
+    if ctx.invoked_subcommand is None:
+        typer.echo(ctx.get_help())
+        raise typer.Exit()
 
 # =========================
 # available trained models
@@ -31,7 +76,7 @@ def availableModels():
 # ===========================================
 
 
-@app.command()
+@app.command(no_args_is_help=True)
 def preprocess(
     fasta_dir: str, 
     output_dir: str,
@@ -79,7 +124,7 @@ def preprocess(
 # ==============================
 
 
-@app.command()
+@app.command(no_args_is_help=True)
 def readlengthDist(output_dir: str):
     """
     Generate a read-length distribution plot from preprocessed parquet files.
@@ -104,7 +149,7 @@ def readlengthDist(output_dir: str):
 # ===========================================
 
 
-@app.command()
+@app.command(no_args_is_help=True)
 def visualize(
     output_dir: str,          
     output_file: str = typer.Option(
@@ -201,7 +246,7 @@ def visualize(
 # =========================
 
 
-@app.command()
+@app.command(no_args_is_help=True)
 def annotate_reads(
     output_dir: str,
     whitelist_file: str,
@@ -303,7 +348,7 @@ def annotate_reads(
 # ======================================
 
 
-@app.command()
+@app.command(no_args_is_help=True)
 def align(
     input_dir: str,
     ref: str,
@@ -356,7 +401,7 @@ def align(
 # ==============================
 
 
-@app.command()
+@app.command(no_args_is_help=True)
 def dedup(
     input_dir: str,
     lv_threshold: int = typer.Option(2, help=(
@@ -399,7 +444,7 @@ def dedup(
 # ===========================
 
 
-@app.command()
+@app.command(no_args_is_help=True)
 def simulate_data(model_name: str,
                   output_dir: str,
                   training_seq_orders_file: str = typer.Option(None, help=(
@@ -466,7 +511,7 @@ def simulate_data(model_name: str,
 # ===============
 
 
-@app.command()
+@app.command(no_args_is_help=True)
 def train_model(model_name: str,
                 output_dir: str,
                 param_file: str = typer.Option(None, help=(
