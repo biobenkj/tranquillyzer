@@ -2,7 +2,7 @@
 .DS_Store
 ._.DS_Store
 
-Dockerfile
+# Dockerfile
 
 # Unwanted hidden files
 ._* 
