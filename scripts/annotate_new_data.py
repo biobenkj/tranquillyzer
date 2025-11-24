@@ -40,6 +40,8 @@ tf.config.optimizer.set_jit(True)
 @njit
 def encode_sequence_numba(read):
     """nucleotide encoding using ASCII lookup."""
+    # FIXME: Creating this array somewhat defeats the purpose of pre-allocating array
+    # in preprocess_sequences(...)
     encoded_seq = np.zeros(len(read), dtype=np.int8)
     for i in range(len(read)):
         encoded_seq[i] = NUCLEOTIDE_TO_ID[ord(read[i])]
@@ -326,6 +328,8 @@ def model_predictions(parquet_file, chunk_start, chunk_size,
 
         encoded_data = preprocess_sequences(reads)
 
+        # FIXME: Why do we create encoded_data that is (n_reads) x (max_read_length) with 8-bit ints,
+        # then promptly turn around and convert the data into 32-bit ints and re-pad the data.
         X_new_padded = pad_sequences(encoded_data,
                                      padding="post",
                                      dtype="int32")
