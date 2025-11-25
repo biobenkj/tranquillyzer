@@ -1,6 +1,7 @@
 def load_libs():
     import os
     import gc
+    import sys
     import time
     import resource
     import logging
@@ -29,7 +30,7 @@ def load_libs():
     from scripts.correct_barcodes import generate_barcodes_stats_pdf
     from scripts.demultiplex import generate_demux_stats_pdf
 
-    return (os, gc, time, resource, logging, pickle, mp, Manager,
+    return (os, gc, sys, time, resource, logging, pickle, mp, Manager,
             defaultdict, queue, psutil, pl, FileLock, pd,
             model_predictions, post_process_reads,
             seq_orders, estimate_average_read_length_from_bin,
@@ -39,6 +40,11 @@ def load_libs():
 
 def collect_prediction_stats(result_queue, workers, match_type_counter, cell_id_counter, cumulative_barcodes_stats, max_idle_time=60):
     """Collect results from each model prediction and collate into shared stats"""
+    # FIXME: This is a bandaid fix
+    import logging
+    import queue
+    import time
+
     idle_start = None
 
     while any(worker.is_alive() for worker in workers) or not result_queue.empty():
@@ -79,7 +85,7 @@ def annotate_reads_wrap(output_dir, whitelist_file, output_fmt,
                         chunk_size, gpu_mem, target_tokens,
                         vram_headroom, min_batch_size, max_batch_size,
                         bc_lv_threshold, threads, max_queue_size):
-    (os, gc, time, resource, logging, pickle, mp, Manager,
+    (os, gc, sys, time, resource, logging, pickle, mp, Manager,
      defaultdict, queue, psutil, pl, FileLock, pd,
      model_predictions, post_process_reads,
      seq_orders, estimate_average_read_length_from_bin,
@@ -282,20 +288,36 @@ def annotate_reads_wrap(output_dir, whitelist_file, output_fmt,
 
         # process all the reads with CNN-LSTM model first
         logger.info("Starting first pass with regular model on all the reads")
-        for parquet_file in parquet_files:
-            for item in model_predictions(parquet_file, 1,
-                                          chunk_size, model_path,
-                                          model_path_w_CRF,
-                                          model_type,
-                                          num_labels,
-                                          user_total_gb=gpu_mem,
-                                          target_tokens_per_replica=target_tokens,
-                                          safety_margin=vram_headroom,
-                                          min_batch=min_batch_size,
-                                          max_batch=max_batch_size):
-                task_queue.put(item)
-                with header_track.get_lock():
-                    header_track.value += 1
+        try:
+            for parquet_file in parquet_files:
+                for item in model_predictions(parquet_file, 1,
+                                            chunk_size, model_path,
+                                            model_path_w_CRF,
+                                            model_type,
+                                            num_labels,
+                                            user_total_gb=gpu_mem,
+                                            target_tokens_per_replica=target_tokens,
+                                            safety_margin=vram_headroom,
+                                            min_batch=min_batch_size,
+                                            max_batch=max_batch_size):
+                    task_queue.put(item)
+                    with header_track.get_lock():
+                        header_track.value += 1
+        except Exception as e:
+            # Wind down queues, close workers when done, print error and exit
+            for _ in range(threads):
+                task_queue.put(None)
+
+            # FIXME: create function to wind down queue without processing
+            collect_prediction_stats(result_queue, workers, match_type_counter, cell_id_counter, cumulative_barcodes_stats)
+            for worker in workers:
+                worker.join()
+                worker.close()
+
+            # TODO: Update error message when checkpoint restart is re-enabled
+            logger.error(f"Error found while annotating: {e}. Output files may be corrupted - PLEASE DELETE AND START AGAIN. Exiting!")
+            sys.exit(1)
+
         logging.info(f"[Memory] RSS: {psutil.Process().memory_info().rss / 1e6:.2f} MB")
 
         for _ in range(threads):
@@ -348,15 +370,30 @@ def annotate_reads_wrap(output_dir, whitelist_file, output_fmt,
                 worker.start()
 
             logger.info("Starting second pass with CRF model on invalid reads")
-            for invalid_parquet_file in invalid_parquet_files:
-                if calculate_total_rows(invalid_parquet_file) >= 100:
-                    for item in model_predictions(invalid_parquet_file, 1,
-                                                  chunk_size, model_path,
-                                                  model_path_w_CRF,
-                                                  model_type, num_labels):
-                        task_queue.put(item)
-                        with header_track.get_lock():
-                            header_track.value += 1
+            try:
+                for invalid_parquet_file in invalid_parquet_files:
+                    if calculate_total_rows(invalid_parquet_file) >= 100:
+                        for item in model_predictions(invalid_parquet_file, 1,
+                                                    chunk_size, model_path,
+                                                    model_path_w_CRF,
+                                                    model_type, num_labels):
+                            task_queue.put(item)
+                            with header_track.get_lock():
+                                header_track.value += 1
+            except Exception as e:
+                # Wind down queues, close workers when done, print error and exit
+                for _ in range(threads):
+                    task_queue.put(None)
+
+                # FIXME: create function to wind down queue without processing
+                collect_prediction_stats(result_queue, workers, match_type_counter, cell_id_counter, cumulative_barcodes_stats)
+                for worker in workers:
+                    worker.join()
+                    worker.close()
+
+                # TODO: Update error message when checkpoint restart is re-enabled
+                logger.error(f"Error found while annotating: {e}. Output files may be corrupted - PLEASE DELETE AND START AGAIN. Exiting!")
+                sys.exit(1)
 
             for _ in range(threads):
                 task_queue.put(None)
@@ -391,14 +428,29 @@ def annotate_reads_wrap(output_dir, whitelist_file, output_fmt,
             worker.start()
 
         logger.info("Starting first pass with CRF model on all the reads")
-        for parquet_file in parquet_files:
-            for item in model_predictions(parquet_file, 1,
-                                          chunk_size, None,
-                                          model_path_w_CRF,
-                                          model_type, num_labels):
-                task_queue.put(item)
-                with header_track.get_lock():
-                    header_track.value += 1
+        try:
+            for parquet_file in parquet_files:
+                for item in model_predictions(parquet_file, 1,
+                                            chunk_size, None,
+                                            model_path_w_CRF,
+                                            model_type, num_labels):
+                    task_queue.put(item)
+                    with header_track.get_lock():
+                        header_track.value += 1
+        except Exception as e:
+            # Wind down queues, close workers when done, print error and exit
+            for _ in range(threads):
+                task_queue.put(None)
+
+            # FIXME: create function to wind down queue without processing
+            collect_prediction_stats(result_queue, workers, match_type_counter, cell_id_counter, cumulative_barcodes_stats)
+            for worker in workers:
+                worker.join()
+                worker.close()
+
+            # TODO: Update error message when checkpoint restart is re-enabled
+            logger.error(f"Error found while annotating: {e}. Output files may be corrupted - PLEASE DELETE AND START AGAIN. Exiting!")
+            sys.exit(1)
 
         for _ in range(threads):
             task_queue.put(None)
