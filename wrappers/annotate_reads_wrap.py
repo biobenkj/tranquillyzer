@@ -3,7 +3,9 @@ import logging
 import queue
 import time
 
-# FIXME: Add logger to global context for handling everything within this module
+# Share logger across all functions in module
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 def load_libs():
     import os
@@ -73,7 +75,7 @@ def collect_prediction_stats(result_queue, workers, match_type_counter, cell_id_
             # Wait for the queue to get more entries
             if idle_start is None:
                 idle_start = time.time()
-                logging.info("Result queue idle, waiting for worker results...")
+                logger.info("Result queue idle, waiting for worker results...")
             elif time.time() - idle_start > max_idle_time:
                 raise TimeoutError(
                     f"Result queue timed out after no data for {max_idle_time} seconds and no workers finished."
@@ -94,16 +96,14 @@ def _empty_results_queue(result_queue, workers, max_idle_time=60):
             # Wait for the queue to get more entries
             if idle_start is None:
                 idle_start = time.time()
-                # FIXME: Make this logger
-                logging.info("Result queue idle during shutdown, waiting for more results")
+                logger.info("Result queue idle during shutdown, waiting for more results")
             elif time.time() - idle_start > max_idle_time:
                 # This may be overkill
                 raise TimeoutError(
                     f"Result queue timed out during shutdown after no data received for {max_idle_time} seconds with workers still running."
                 )
 
-    # FIXME: Make this logger
-    logging.info("Results queue cleared. Commence shutdown due to error")
+    logger.info("Results queue cleared. Commence shutdown due to error")
 
 def annotate_reads_wrap(output_dir, whitelist_file, output_fmt,
                         model_name, model_type, seq_order_file,
@@ -117,12 +117,6 @@ def annotate_reads_wrap(output_dir, whitelist_file, output_fmt,
      calculate_total_rows, generate_barcodes_stats_pdf,
      generate_demux_stats_pdf, plot_read_n_cDNA_lengths,
      convert_tsv_to_parquet) = load_libs()
-
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(levelname)s - %(message)s'
-    )
-    logger = logging.getLogger(__name__)
 
     start = time.time()
 
@@ -278,7 +272,7 @@ def annotate_reads_wrap(output_dir, whitelist_file, output_fmt,
                                       local_cell_counter,
                                       bin_name))
                 else:
-                    logging.warning(f"No result from post_process_reads in {bin_name}, chunk {chunk_idx}")
+                    logger.warning(f"No result from post_process_reads in {bin_name}, chunk {chunk_idx}")
 
                 with count.get_lock():
                     count.value += 1
@@ -298,7 +292,7 @@ def annotate_reads_wrap(output_dir, whitelist_file, output_fmt,
 
         pass_num = 1
 
-        logging.info(f"[Memory] RSS: {psutil.Process().memory_info().rss / 1e6:.2f} MB")
+        logger.info(f"[Memory] RSS: {psutil.Process().memory_info().rss / 1e6:.2f} MB")
 
         workers = [mp.Process(target=post_process_worker,
                               args=(task_queue, strand,
@@ -306,7 +300,7 @@ def annotate_reads_wrap(output_dir, whitelist_file, output_fmt,
                                     header_track,
                                     result_queue)) for _ in range(num_workers)]
 
-        logging.info(f"Number of workers = {len(workers)}")
+        logger.info(f"Number of workers = {len(workers)}")
 
         for worker in workers:
             worker.start()
@@ -342,21 +336,21 @@ def annotate_reads_wrap(output_dir, whitelist_file, output_fmt,
             logger.error(f"Error found while annotating: {e}. Output files may be corrupted - PLEASE DELETE AND START AGAIN. Exiting!")
             sys.exit(1)
 
-        logging.info(f"[Memory] RSS: {psutil.Process().memory_info().rss / 1e6:.2f} MB")
+        logger.info(f"[Memory] RSS: {psutil.Process().memory_info().rss / 1e6:.2f} MB")
 
         for _ in range(threads):
             task_queue.put(None)
 
-        logging.info(f"[Memory] RSS: {psutil.Process().memory_info().rss / 1e6:.2f} MB")
+        logger.info(f"[Memory] RSS: {psutil.Process().memory_info().rss / 1e6:.2f} MB")
         collect_prediction_stats(result_queue, workers, match_type_counter, cell_id_counter, cumulative_barcodes_stats)
-        logging.info(f"[Memory] RSS: {psutil.Process().memory_info().rss / 1e6:.2f} MB")
+        logger.info(f"[Memory] RSS: {psutil.Process().memory_info().rss / 1e6:.2f} MB")
 
         logger.info("Finished first pass with regular model on all the reads")
 
         for worker in workers:
             worker.join()
 
-        logging.info(f"[Memory] RSS: {psutil.Process().memory_info().rss / 1e6:.2f} MB")
+        logger.info(f"[Memory] RSS: {psutil.Process().memory_info().rss / 1e6:.2f} MB")
         model_path_w_CRF = f"{models_dir}/{model_name}_w_CRF.h5"
 
         if model_type == "HYB":
