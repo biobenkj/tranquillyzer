@@ -294,8 +294,8 @@ def merge_in_sq_order(output_bam: str, temp_paths_in_order, template_bam: str, t
 
 
 # Per-read (QNAME) stats on primaries only
-def compute_final_stats_per_read(bam_path: str, stats_tsv: str, 
-                                 threads: int = 4, 
+def compute_final_stats_per_read(bam_path: str, stats_tsv: str,
+                                 threads: int = 4,
                                  primary_only: bool = True):
     """
     Count each read name once:
@@ -349,7 +349,7 @@ def deduplication_parallel(sorted_bam: str, output_bam: str,
             work.append(
                 pool.apply_async(
                     process_region,
-                    (sorted_bam, temp_path, region, umi_ld, 
+                    (sorted_bam, temp_path, region, umi_ld,
                     per_cell, stranded, bgzf_threads_per_writer),
                 )
             )
@@ -359,7 +359,7 @@ def deduplication_parallel(sorted_bam: str, output_bam: str,
 
     # Merge in @SQ order
     ordered_paths = [temp_paths[r] for r in regions if r in temp_paths]
-    merge_in_sq_order(output_bam, ordered_paths, 
+    merge_in_sq_order(output_bam, ordered_paths,
                       sorted_bam, bgzf_threads_per_writer)
 
     # Cleanup temps
@@ -372,7 +372,7 @@ def deduplication_parallel(sorted_bam: str, output_bam: str,
     # Stats: per read (QNAME), primaries only
     logger.info("Duplicate marking complete, computing per-read stats")
     stats_file = output_bam.replace(".bam", "_stats.tsv")
-    compute_final_stats_per_read(output_bam, stats_file, 
-                                 threads=threads, 
+    compute_final_stats_per_read(output_bam, stats_file,
+                                 threads=threads,
                                  primary_only=True)
     logger.info("Computed per-read stats, indexing final BAM")

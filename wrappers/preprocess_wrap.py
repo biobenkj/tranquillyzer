@@ -1,11 +1,11 @@
 def preprocess_wrap(fasta_dir, output_dir,
-                    output_base_qual, 
+                    output_base_qual,
                     chunk_size, threads):
     import os
     import time
     import resource
     import logging
-    
+
     from scripts.preprocess_reads import (
         parallel_preprocess_data,
         find_sequence_files,

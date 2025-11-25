@@ -36,7 +36,7 @@ def load_checkpoint(checkpoint_file, start_bin):
 
 
 def process_full_length_reads_in_chunks_and_save(reads, original_read_names,
-                                                 strand, output_fmt, 
+                                                 strand, output_fmt,
                                                  base_qualities,
                                                  model_type, pass_num,
                                                  model_path_w_CRF,
@@ -58,7 +58,7 @@ def process_full_length_reads_in_chunks_and_save(reads, original_read_names,
 
     reads_in_chunk = len(reads)
 
-    logging.info(f"Post-processing {bin_name} chunk - {chunk_idx}: number of reads = {reads_in_chunk}\n")
+    logging.info(f"Post-processing {bin_name} chunk - {chunk_idx}: number of reads = {reads_in_chunk}")
 
     # n_jobs = min(n_jobs, reads_in_chunk)
     n_jobs_extract = min(16, reads_in_chunk)
@@ -67,7 +67,7 @@ def process_full_length_reads_in_chunks_and_save(reads, original_read_names,
                                                                               actual_lengths, label_binarizer, seq_order,
                                                                               barcodes, n_jobs_extract)
 
-    # logging.info("Preparing predictions for barcode correction and demultiplexing\n")
+    # logging.info("Preparing predictions for barcode correction and demultiplexing")
     chunk_df = pd.DataFrame.from_records(
     (
         {
@@ -81,7 +81,7 @@ def process_full_length_reads_in_chunks_and_save(reads, original_read_names,
             },
             **{
                 f'{label}_Ends': ', '.join(map(str, annotations['Ends']))
-                for label, annotations in annotated_read.items() 
+                for label, annotations in annotated_read.items()
                 if label not in {"architecture", "reason"} and 'Ends' in annotations
             },
             **{
@@ -129,7 +129,7 @@ def process_full_length_reads_in_chunks_and_save(reads, original_read_names,
 
     else:
         # Save invalid reads to a separate file
-        # logging.info(f"Saving {len(invalid_reads_df)} invalid reads to {invalid_output_file}\n")
+        # logging.info(f"Saving {len(invalid_reads_df)} invalid reads to {invalid_output_file}")
         if not invalid_reads_df.empty:
             with invalid_file_lock:
                 add_header = not os.path.exists(invalid_output_file) or os.path.getsize(invalid_output_file) == 0
@@ -137,7 +137,7 @@ def process_full_length_reads_in_chunks_and_save(reads, original_read_names,
             # print(f"Saved {len(invalid_reads_df)} invalid reads to {invalid_output_file}")
         # del invalid_reads_df
 
-    # logging.info("Prepared predictions for barcode correction and demultiplexing\n")
+    # logging.info("Prepared predictions for barcode correction and demultiplexing")
 
     # Process valid reads for barcodes
     column_mapping = {}
@@ -148,7 +148,7 @@ def process_full_length_reads_in_chunks_and_save(reads, original_read_names,
     # Process barcodes in parallel
     if not valid_reads_df.empty:
         # logging.info("Correcting barcode and demuliplexing valid reads")
-        corrected_df, match_type_counts, cell_id_counts = bc_n_demultiplex(valid_reads_df, strand, 
+        corrected_df, match_type_counts, cell_id_counts = bc_n_demultiplex(valid_reads_df, strand,
                                                                            list(column_mapping.keys()),
                                                                            whitelist_dict, whitelist_df, threshold,
                                                                            output_dir, output_fmt, demuxed_fasta,
@@ -182,7 +182,7 @@ def process_full_length_reads_in_chunks_and_save(reads, original_read_names,
             corrected_df.to_csv(valid_output_file, sep='\t', index=False, mode='a', header=add_header)
         # logging.info(f"Processed and saved {len(corrected_df)} valid reads to {valid_output_file}")
 
-        logging.info(f"Post-processed {bin_name} chunk - {chunk_idx}: number of reads = {reads_in_chunk}\n")
+        logging.info(f"Post-processed {bin_name} chunk - {chunk_idx}: number of reads = {reads_in_chunk}")
 
         return match_type_counts, cell_id_counts, cumulative_barcodes_stats
 
@@ -196,7 +196,7 @@ def process_full_length_reads_in_chunks_and_save(reads, original_read_names,
     gc.collect()
 
 
-def post_process_reads(reads, read_names, strand, output_fmt, 
+def post_process_reads(reads, read_names, strand, output_fmt,
                        base_qualities, model_type, pass_num,
                        model_path_w_CRF, predictions, label_binarizer,
                        cumulative_barcodes_stats, read_lengths,
@@ -287,7 +287,7 @@ def plot_read_n_cDNA_lengths(output_dir):
         # cDNA length distribution
         if len(log_cDNA_lengths[log_cDNA_lengths > 0]):
             plt.figure(figsize=(8, 6))
-            plt.hist(log_cDNA_lengths[log_cDNA_lengths > 0], 
+            plt.hist(log_cDNA_lengths[log_cDNA_lengths > 0],
                      bins=100, color='blue', edgecolor='black')
             plt.title('cDNA Length Distribution (Log Scale)')
             plt.xlabel('Log10(cDNA Length)')

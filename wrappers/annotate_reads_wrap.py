@@ -1,15 +1,22 @@
+# Global library imports - used by all functions in module
+import logging
+import queue
+import time
+
+# Share logger across all functions in module
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
 def load_libs():
     import os
     import gc
-    import time
+    import sys
     import resource
-    import logging
     import pickle
     import pandas as pd
     import multiprocessing as mp
     from multiprocessing import Manager
     from collections import defaultdict
-    import queue
     import psutil
     import polars as pl
 
@@ -18,55 +25,102 @@ def load_libs():
     from scripts.export_annotations import (
         post_process_reads,
         plot_read_n_cDNA_lengths,
-        )
+    )
     from scripts.annotate_new_data import (
-        build_model, annotate_new_data_parallel,
-        calculate_total_rows,preprocess_sequences,
+        calculate_total_rows,
         model_predictions,
-        estimate_average_read_length_from_bin
-        )
-    from scripts.preprocess_reads import (
-        parallel_preprocess_data,
-        find_sequence_files,
-        extract_and_bin_reads,
-        convert_tsv_to_parquet,
-        )
-    from scripts.trained_models import (
-        trained_models, seq_orders
-        )
+        estimate_average_read_length_from_bin,
+    )
+    from scripts.preprocess_reads import convert_tsv_to_parquet
+    from scripts.trained_models import seq_orders
     from scripts.correct_barcodes import generate_barcodes_stats_pdf
     from scripts.demultiplex import generate_demux_stats_pdf
 
-    return (os, gc, time, resource, logging, pickle, mp, Manager,
-            defaultdict, queue, psutil, pl, FileLock, pd,
+    return (os, gc, sys, resource, pickle, mp, Manager,
+            defaultdict, psutil, pl, FileLock, pd,
             model_predictions, post_process_reads,
             seq_orders, estimate_average_read_length_from_bin,
             calculate_total_rows, generate_barcodes_stats_pdf,
             generate_demux_stats_pdf, plot_read_n_cDNA_lengths,
             convert_tsv_to_parquet)
 
+def collect_prediction_stats(result_queue, workers, match_type_counter, cell_id_counter, cumulative_barcodes_stats, max_idle_time=60):
+    """Collect results from each model prediction and collate into shared stats"""
+    idle_start = None
 
-def annotate_reads_wrap(output_dir, whitelist_file, output_fmt, 
+    while any(worker.is_alive() for worker in workers) or not result_queue.empty():
+        try:
+            result = result_queue.get(timeout=15)
+
+            # Reset idle start since a new result has been retrieved
+            idle_start = None
+
+            if result:
+                local_cumulative_stats, local_match_counter, local_cell_counter, _ = result
+
+                # Count how (all matched, majority matched, ambiguous, etc.) barcodes match
+                for key, value in local_match_counter.items():
+                    match_type_counter[key] = match_type_counter.get(key, 0) + value
+
+                # Number of reads per demuxed cell
+                for key, value in local_cell_counter.items():
+                    cell_id_counter[key] = cell_id_counter.get(key, 0) + value
+
+                # Stats for barcode matching
+                for barcode in local_cumulative_stats.keys():
+                    for stat in ["count_data", "min_dist_data"]:
+                        for key, value in local_cumulative_stats[barcode][stat].items():
+                            cumulative_barcodes_stats[barcode][stat][key]=cumulative_barcodes_stats[barcode][stat].get(key, 0) + value
+        except queue.Empty:
+            # Wait for the queue to get more entries
+            if idle_start is None:
+                idle_start = time.time()
+                logger.info("Result queue idle, waiting for worker results...")
+            elif time.time() - idle_start > max_idle_time:
+                raise TimeoutError(
+                    f"Result queue timed out after no data for {max_idle_time} seconds and no workers finished."
+                )
+
+def _empty_results_queue(result_queue, workers, max_idle_time=60):
+    """Runs when error encountered during model prediction. Clears queue to allow for clean exit."""
+    idle_start = None
+
+    while any(worker.is_alive() for worker in workers) or not result_queue.empty():
+        try:
+            # We need to get the items in the queue to clear it, but we don't actually want to do anything
+            _ = result_queue.get(timeout=15)
+
+            # Reset idle start since we retrieved a new result
+            idle_start = None
+        except queue.Empty:
+            # Wait for the queue to get more entries
+            if idle_start is None:
+                idle_start = time.time()
+                logger.info("Result queue idle during shutdown, waiting for more results")
+            elif time.time() - idle_start > max_idle_time:
+                # This may be overkill
+                raise TimeoutError(
+                    f"Result queue timed out during shutdown after no data received for {max_idle_time} seconds with workers still running."
+                )
+
+    logger.info("Results queue cleared. Commence shutdown due to error")
+
+def annotate_reads_wrap(output_dir, whitelist_file, output_fmt,
                         model_name, model_type, seq_order_file,
                         chunk_size, gpu_mem, target_tokens,
                         vram_headroom, min_batch_size, max_batch_size,
                         bc_lv_threshold, threads, max_queue_size):
-    (os, gc, time, resource, logging, pickle, mp, Manager,
-     defaultdict, queue, psutil, pl, FileLock, pd,
+    (os, gc, sys, resource, pickle, mp, Manager,
+     defaultdict, psutil, pl, FileLock, pd,
      model_predictions, post_process_reads,
      seq_orders, estimate_average_read_length_from_bin,
      calculate_total_rows, generate_barcodes_stats_pdf,
      generate_demux_stats_pdf, plot_read_n_cDNA_lengths,
      convert_tsv_to_parquet) = load_libs()
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(levelname)s - %(message)s'
-    )
-    logger = logging.getLogger(__name__)
-    
     start = time.time()
 
+    # Read / create / prepare input files and directories
     base_dir = os.path.dirname(os.path.abspath(__file__))
     base_dir = os.path.abspath(os.path.join(base_dir, ".."))
     models_dir = os.path.join(base_dir, "models")
@@ -78,6 +132,8 @@ def annotate_reads_wrap(output_dir, whitelist_file, output_fmt,
     if seq_order_file is None:
         seq_order_file = os.path.join(utils_dir, "seq_orders.tsv")
 
+    # TODO: model_path and model_path_w_CRF can probably be moved into the model if-statement
+    #       This may have to wait until post_process_worker has been moved out of this function though
     model_path_w_CRF = None
     model_path = None
 
@@ -101,24 +157,6 @@ def annotate_reads_wrap(output_dir, whitelist_file, output_fmt,
         key=lambda f: estimate_average_read_length_from_bin(os.path.basename(f).replace(".parquet", ""))
     )
 
-    column_mapping = {barcode: barcode for barcode in barcodes}
-
-    whitelist_dict = {
-    "cell_ids": {
-        idx + 1: "-".join(map(str, row.dropna().unique()))
-        for idx, row in whitelist_df[list(column_mapping.values())].iterrows()
-    },
-    **{
-        input_column: whitelist_df[whitelist_column].dropna().unique().tolist()
-        for input_column, whitelist_column in column_mapping.items()
-        }
-    }
-    manager = Manager()
-    cumulative_barcodes_stats = manager.dict({barcode: {'count_data': manager.dict(),
-                                                        'min_dist_data': manager.dict()} for barcode in column_mapping.keys()})
-    match_type_counter = manager.dict()
-    cell_id_counter = manager.dict()
-
     fasta_dir = os.path.join(output_dir, "demuxed_fasta")
     os.makedirs(fasta_dir, exist_ok=True)
 
@@ -137,6 +175,36 @@ def annotate_reads_wrap(output_dir, whitelist_file, output_fmt,
     invalid_file_lock = FileLock(invalid_output_file + ".lock")
     valid_file_lock = FileLock(valid_output_file + ".lock")
 
+    # TODO: This entire object could be dropped and use the barcodes list as it comes
+    #       from seq_orders. There is only one location where both the key and value are
+    #       used from the dictionary. Since its the same value though, we really don't
+    #       need to double store these values
+    column_mapping = {barcode: barcode for barcode in barcodes}
+
+    whitelist_dict = {
+        "cell_ids": {
+            idx + 1: "-".join(map(str, row.dropna().unique()))
+            for idx, row in whitelist_df[list(column_mapping.values())].iterrows()
+        },
+        **{
+            input_column: whitelist_df[whitelist_column].dropna().unique().tolist()
+            for input_column, whitelist_column in column_mapping.items()
+        }
+    }
+
+    # Create objects shared across processes
+    manager = Manager()
+    cumulative_barcodes_stats = manager.dict(
+        {
+            barcode: {
+                'count_data': manager.dict(),
+                'min_dist_data': manager.dict(),
+            } for barcode in column_mapping.keys()
+        }
+    )
+    match_type_counter = manager.dict()
+    cell_id_counter = manager.dict()
+
     def post_process_worker(task_queue, strand, output_fmt, count, header_track, result_queue):
         """Worker function for processing reads and returning results."""
         while True:
@@ -147,17 +215,36 @@ def annotate_reads_wrap(output_dir, whitelist_file, output_fmt,
 
                 parquet_file, bin_name, chunk_idx, predictions, read_names, reads, read_lengths, base_qualities = item
 
-                append = "w" if chunk_idx == 1 else "a"
-
-                local_cumulative_stats = {barcode: {'count_data': {}, 
+                local_cumulative_stats = {barcode: {'count_data': {},
                                                     'min_dist_data': {}} for barcode in column_mapping.keys()}
                 local_match_counter, local_cell_counter = defaultdict(int), defaultdict(int)
 
+                # FIXME: output_dir comes from outer function
                 checkpoint_file = os.path.join(output_dir, "annotation_checkpoint.txt")
 
                 with header_track.get_lock():
                     add_header = header_track.value == 0
 
+                # FIXME: these variables come from outer function:
+                # -- model_type
+                # -- pass_num
+                # -- model_path_w_CRF
+                # -- label_binarizer
+                # -- seq_order
+                # -- output_dir
+                # -- invalid_output_file
+                # -- invalid_file_lock
+                # -- valid_output_file
+                # -- valid_file_lock
+                # -- barcodes
+                # -- whitelist_df
+                # -- whitelist_dict
+                # -- bc_lv_threshold
+                # -- demuxed_fasta
+                # -- demuxed_fasta_lock
+                # -- ambiguous_fasta
+                # -- ambiguous_fasta_lock
+                # -- threads
                 result = post_process_reads(
                     reads, read_names, strand, output_fmt,
                     base_qualities, model_type,
@@ -185,7 +272,7 @@ def annotate_reads_wrap(output_dir, whitelist_file, output_fmt,
                                       local_cell_counter,
                                       bin_name))
                 else:
-                    logging.warning(f"No result from post_process_reads in {bin_name}, chunk {chunk_idx}")
+                    logger.warning(f"No result from post_process_reads in {bin_name}, chunk {chunk_idx}")
 
                 with count.get_lock():
                     count.value += 1
@@ -197,29 +284,6 @@ def annotate_reads_wrap(output_dir, whitelist_file, output_fmt,
     num_workers = min(threads, mp.cpu_count() - 1)
     max_queue_size = max(3, num_workers * 2)
 
-    def run_prediction_pipeline(result_queue, workers, max_idle_time=60):
-        idle_start = None
-        while any(worker.is_alive() for worker in workers) or not result_queue.empty():
-            try:
-                result = result_queue.get(timeout=15)
-                idle_start = None
-                if result:
-                    local_cumulative_stats, local_match_counter, local_cell_counter, bin_name = result
-                    for key, value in local_match_counter.items():
-                        match_type_counter[key] = match_type_counter.get(key, 0) + value
-                    for key, value in local_cell_counter.items():
-                        cell_id_counter[key] = cell_id_counter.get(key, 0) + value
-                    for barcode in local_cumulative_stats.keys():
-                        for stat in ["count_data", "min_dist_data"]:
-                            for key, value in local_cumulative_stats[barcode][stat].items():
-                                cumulative_barcodes_stats[barcode][stat][key]=cumulative_barcodes_stats[barcode][stat].get(key, 0) + value
-            except queue.Empty:
-                if idle_start is None:
-                    idle_start = time.time()
-                    logging.info("Result queue idle, waiting for worker results...")
-                elif time.time() - idle_start > max_idle_time:
-                    raise TimeoutError("Result queue timed out after no data for 60 seconds and no workers finished.")
-
     if model_type == "REG" or model_type == "HYB":
         task_queue = mp.Queue(maxsize=max_queue_size)
         result_queue = mp.Queue()
@@ -228,50 +292,65 @@ def annotate_reads_wrap(output_dir, whitelist_file, output_fmt,
 
         pass_num = 1
 
-        logging.info(f"[Memory] RSS: {psutil.Process().memory_info().rss / 1e6:.2f} MB")
+        logger.info(f"[Memory] RSS: {psutil.Process().memory_info().rss / 1e6:.2f} MB")
 
         workers = [mp.Process(target=post_process_worker,
-                              args=(task_queue, strand, 
+                              args=(task_queue, strand,
                                     output_fmt, count,
                                     header_track,
                                     result_queue)) for _ in range(num_workers)]
 
-        logging.info(f"Number of workers = {len(workers)}")
+        logger.info(f"Number of workers = {len(workers)}")
 
         for worker in workers:
             worker.start()
 
         # process all the reads with CNN-LSTM model first
         logger.info("Starting first pass with regular model on all the reads")
-        for parquet_file in parquet_files:
-            for item in model_predictions(parquet_file, 1,
-                                          chunk_size, model_path,
-                                          model_path_w_CRF,
-                                          model_type,
-                                          num_labels,
-                                          user_total_gb=gpu_mem,
-                                          target_tokens_per_replica=target_tokens,
-                                          safety_margin=vram_headroom,
-                                          min_batch=min_batch_size,
-                                          max_batch=max_batch_size):
-                task_queue.put(item)
-                with header_track.get_lock():
-                    header_track.value += 1
-        logging.info(f"[Memory] RSS: {psutil.Process().memory_info().rss / 1e6:.2f} MB")
+        try:
+            for parquet_file in parquet_files:
+                for item in model_predictions(parquet_file, 1,
+                                            chunk_size, model_path,
+                                            model_path_w_CRF,
+                                            model_type,
+                                            num_labels,
+                                            user_total_gb=gpu_mem,
+                                            target_tokens_per_replica=target_tokens,
+                                            safety_margin=vram_headroom,
+                                            min_batch=min_batch_size,
+                                            max_batch=max_batch_size):
+                    task_queue.put(item)
+                    with header_track.get_lock():
+                        header_track.value += 1
+        except Exception as e:
+            # Wind down queues, close workers when done, print error and exit
+            for _ in range(threads):
+                task_queue.put(None)
+
+            _empty_results_queue(result_queue, workers)
+            for worker in workers:
+                worker.join()
+                worker.close()
+
+            # TODO: Update error message when checkpoint restart is re-enabled
+            logger.error(f"Error found while annotating: {e}. Output files may be corrupted - PLEASE DELETE AND START AGAIN. Exiting!")
+            sys.exit(1)
+
+        logger.info(f"[Memory] RSS: {psutil.Process().memory_info().rss / 1e6:.2f} MB")
 
         for _ in range(threads):
             task_queue.put(None)
 
-        logging.info(f"[Memory] RSS: {psutil.Process().memory_info().rss / 1e6:.2f} MB")
-        run_prediction_pipeline(result_queue, workers)
-        logging.info(f"[Memory] RSS: {psutil.Process().memory_info().rss / 1e6:.2f} MB")
+        logger.info(f"[Memory] RSS: {psutil.Process().memory_info().rss / 1e6:.2f} MB")
+        collect_prediction_stats(result_queue, workers, match_type_counter, cell_id_counter, cumulative_barcodes_stats)
+        logger.info(f"[Memory] RSS: {psutil.Process().memory_info().rss / 1e6:.2f} MB")
 
         logger.info("Finished first pass with regular model on all the reads")
 
         for worker in workers:
             worker.join()
 
-        logging.info(f"[Memory] RSS: {psutil.Process().memory_info().rss / 1e6:.2f} MB")
+        logger.info(f"[Memory] RSS: {psutil.Process().memory_info().rss / 1e6:.2f} MB")
         model_path_w_CRF = f"{models_dir}/{model_name}_w_CRF.h5"
 
         if model_type == "HYB":
@@ -309,20 +388,34 @@ def annotate_reads_wrap(output_dir, whitelist_file, output_fmt,
                 worker.start()
 
             logger.info("Starting second pass with CRF model on invalid reads")
-            for invalid_parquet_file in invalid_parquet_files:
-                if calculate_total_rows(invalid_parquet_file) >= 100:
-                    for item in model_predictions(invalid_parquet_file, 1,
-                                                  chunk_size, model_path,
-                                                  model_path_w_CRF,
-                                                  model_type, num_labels):
-                        task_queue.put(item)
-                        with header_track.get_lock():
-                            header_track.value += 1
+            try:
+                for invalid_parquet_file in invalid_parquet_files:
+                    if calculate_total_rows(invalid_parquet_file) >= 100:
+                        for item in model_predictions(invalid_parquet_file, 1,
+                                                    chunk_size, model_path,
+                                                    model_path_w_CRF,
+                                                    model_type, num_labels):
+                            task_queue.put(item)
+                            with header_track.get_lock():
+                                header_track.value += 1
+            except Exception as e:
+                # Wind down queues, close workers when done, print error and exit
+                for _ in range(threads):
+                    task_queue.put(None)
+
+                _empty_results_queue(result_queue, workers)
+                for worker in workers:
+                    worker.join()
+                    worker.close()
+
+                # TODO: Update error message when checkpoint restart is re-enabled
+                logger.error(f"Error found while annotating: {e}. Output files may be corrupted - PLEASE DELETE AND START AGAIN. Exiting!")
+                sys.exit(1)
 
             for _ in range(threads):
                 task_queue.put(None)
 
-            run_prediction_pipeline(result_queue, workers)
+            collect_prediction_stats(result_queue, workers, match_type_counter, cell_id_counter, cumulative_barcodes_stats)
             logger.info("Finished second pass with CRF model on invalid reads")
 
             for worker in workers:
@@ -352,19 +445,33 @@ def annotate_reads_wrap(output_dir, whitelist_file, output_fmt,
             worker.start()
 
         logger.info("Starting first pass with CRF model on all the reads")
-        for parquet_file in parquet_files:
-            for item in model_predictions(parquet_file, 1,
-                                          chunk_size, None,
-                                          model_path_w_CRF,
-                                          model_type, num_labels):
-                task_queue.put(item)
-                with header_track.get_lock():
-                    header_track.value += 1
+        try:
+            for parquet_file in parquet_files:
+                for item in model_predictions(parquet_file, 1,
+                                            chunk_size, None,
+                                            model_path_w_CRF,
+                                            model_type, num_labels):
+                    task_queue.put(item)
+                    with header_track.get_lock():
+                        header_track.value += 1
+        except Exception as e:
+            # Wind down queues, close workers when done, print error and exit
+            for _ in range(threads):
+                task_queue.put(None)
+
+            _empty_results_queue(result_queue, workers)
+            for worker in workers:
+                worker.join()
+                worker.close()
+
+            # TODO: Update error message when checkpoint restart is re-enabled
+            logger.error(f"Error found while annotating: {e}. Output files may be corrupted - PLEASE DELETE AND START AGAIN. Exiting!")
+            sys.exit(1)
 
         for _ in range(threads):
             task_queue.put(None)
 
-        run_prediction_pipeline(result_queue, workers)
+        collect_prediction_stats(result_queue, workers, match_type_counter, cell_id_counter, cumulative_barcodes_stats)
 
         logger.info("Finished first pass with CRF model on all the reads")
 
@@ -372,8 +479,13 @@ def annotate_reads_wrap(output_dir, whitelist_file, output_fmt,
             worker.join()
             worker.close()
 
-    cumulative_barcodes_stats = {k: {'count_data': dict(v['count_data']),
-                                     'min_dist_data': dict(v['min_dist_data'])} for k, v in cumulative_barcodes_stats.items()}
+    # Convert shared dictionary to a standard dictionary
+    # Each key of the inner dictionary is its own shared dictionary, so convert those as well
+    cumulative_barcodes_stats = {
+        k: {
+            stat: dict(stat_dict) for stat, stat_dict in inner.items()
+        } for k, inner in cumulative_barcodes_stats.items()
+    }
 
     os.makedirs(f"{output_dir}/plots", exist_ok=True)
 

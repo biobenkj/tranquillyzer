@@ -12,7 +12,7 @@ def simulate_data_wrap(model_name, output_dir, training_seq_orders_file,
     from Bio.SeqRecord import SeqRecord
     from scripts.simulate_training_data import generate_training_reads
     from scripts.trained_models import seq_orders
-    
+
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s'

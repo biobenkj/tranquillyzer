@@ -40,6 +40,8 @@ tf.config.optimizer.set_jit(True)
 @njit
 def encode_sequence_numba(read):
     """nucleotide encoding using ASCII lookup."""
+    # FIXME: Creating this array somewhat defeats the purpose of pre-allocating array
+    # in preprocess_sequences(...)
     encoded_seq = np.zeros(len(read), dtype=np.int8)
     for i in range(len(read)):
         encoded_seq[i] = NUCLEOTIDE_TO_ID[ord(read[i])]
@@ -162,9 +164,9 @@ def choose_global_batch(L,
                         user_total_gb: Optional[str] = None,
                         safety_margin: float = 0.35):
     """
-    Choose per-replica batch = min( token-based, conv-based across GPUs ), 
+    Choose per-replica batch = min( token-based, conv-based across GPUs ),
     then scale by replicas.
-    'user_total_gb' is a string like "48" or "48,48,24". 
+    'user_total_gb' is a string like "48" or "48,48,24".
     If None, default 12 GB/GPU.
     """
     handles = get_gpu_handles()
@@ -188,7 +190,7 @@ def choose_global_batch(L,
 def predict_with_backoff(model, build_dataset_fn,
                          start_batch: int,
                          min_batch: int = 1):
-                         
+
     bs = int(start_batch)
     last_err = None
     while bs >= int(min_batch):
@@ -223,7 +225,7 @@ def _log_batch_once(bin_name: str, bs: int):
 
 def annotate_new_data_parallel(new_encoded_data, model, global_bs,
                                min_batch=1, strategy=None):
-    
+
     os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
     if not get_gpu_handles():
@@ -289,7 +291,7 @@ def model_predictions(parquet_file, chunk_start, chunk_size,
                       target_tokens_per_replica: int = 1_200_000, # tune 0.8–1.5M per your GPUs
                       safety_margin: float = 0.35,                # keep ~35% VRAM headroom
                       min_batch: int = 1, max_batch: int = 8192):
-    
+
     total_rows = calculate_total_rows(parquet_file)
     bin_name = os.path.basename(parquet_file).replace(".parquet", "")
 
@@ -308,14 +310,14 @@ def model_predictions(parquet_file, chunk_start, chunk_size,
 
     conv_filters = 256  # default, will be overwritten if params present
 
-    model = build_model(model_path_w_CRF, model_path, 
+    model = build_model(model_path_w_CRF, model_path,
                         conv_filters, num_labels,
                         strategy=strategy)
 
     conv_filters = 256  # default, will be overwritten if params present
 
     for chunk_idx in range(chunk_start, num_chunks + 1):
-        
+
         logger.info(f"Inferring labels for {bin_name}: chunk {chunk_idx}")
 
         df_chunk = scan_df.slice((chunk_idx - 1) * dynamic_chunk_size, dynamic_chunk_size).collect()
@@ -326,6 +328,8 @@ def model_predictions(parquet_file, chunk_start, chunk_size,
 
         encoded_data = preprocess_sequences(reads)
 
+        # FIXME: Why do we create encoded_data that is (n_reads) x (max_read_length) with 8-bit ints,
+        # then promptly turn around and convert the data into 32-bit ints and re-pad the data.
         X_new_padded = pad_sequences(encoded_data,
                                      padding="post",
                                      dtype="int32")
@@ -350,7 +354,7 @@ def model_predictions(parquet_file, chunk_start, chunk_size,
                 min_batch=min_batch, strategy=strategy,
             )
         else:
-            model = build_model(model_path_w_CRF, model_path, 
+            model = build_model(model_path_w_CRF, model_path,
                                 conv_filters, num_labels,
                                 strategy=None)
             global_bs = choose_global_batch(
@@ -361,7 +365,7 @@ def model_predictions(parquet_file, chunk_start, chunk_size,
                 user_total_gb=user_total_gb,
                 safety_margin=safety_margin,
             )
-            _log_batch_once(bin_name or "", int(global_bs)) 
+            _log_batch_once(bin_name or "", int(global_bs))
 
             chunk_predictions = annotate_new_data_parallel(
                 X_new_padded, model, global_bs,

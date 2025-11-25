@@ -2,6 +2,7 @@ import polars as pl
 
 def load_libs():
     import os
+    import sys
     import time
     import resource
     import logging
@@ -11,7 +12,7 @@ def load_libs():
     from sklearn.preprocessing import LabelBinarizer
 
     os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
-    warnings.filterwarnings('ignore', category=UserWarning, 
+    warnings.filterwarnings('ignore', category=UserWarning,
                         module='tensorflow')
 
     import tensorflow as tf
@@ -23,26 +24,32 @@ def load_libs():
     from scripts.annotate_new_data import annotate_new_data_parallel
     from scripts.visualize_annot import save_plots_to_pdf
 
-    return (os, time, resource, logging, random, pickle,
+    return (os, sys, time, resource, logging, random, pickle,
             LabelBinarizer, tf, extract_annotated_full_length_seqs,
             build_model, preprocess_sequences, trained_models,
             seq_orders, annotate_new_data_parallel, save_plots_to_pdf)
 
 
-def visualize_wrap(output_dir, output_file, model_name, model_type, 
-                   seq_order_file, gpu_mem, target_tokens, vram_headroom, 
+def visualize_wrap(output_dir, output_file, model_name, model_type,
+                   seq_order_file, gpu_mem, target_tokens, vram_headroom,
                    min_batch_size, max_batch_size, num_reads, read_names, threads):
 
-    (os, time, resource, logging, random, pickle,
+    (os, sys, time, resource, logging, random, pickle,
      LabelBinarizer, tf, extract_annotated_full_length_seqs,
      build_model, preprocess_sequences, trained_models,
      seq_orders, annotate_new_data_parallel, save_plots_to_pdf) = load_libs()
-    
+
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s'
         )
     logger = logging.getLogger(__name__)
+
+    # Exit early if bad inputs given
+    if not num_reads and not read_names:
+        logger.error("You must either provide a value for 'num_reads' or specify 'read_names'.")
+        raise ValueError("You must either provide a value for 'num_reads' or specify 'read_names'.")
+
     start = time.time()
 
     base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -77,10 +84,13 @@ def visualize_wrap(output_dir, output_file, model_name, model_type,
                                model_name + "_w_CRF_lbl_bin.pkl"),
                                "rb") as f:
             label_binarizer = pickle.load(f)
-    
-    model = build_model(model_path_w_CRF, model_path,
-                        conv_filters, num_labels, 
-                        strategy=None)
+
+    try:
+        model = build_model(model_path_w_CRF, model_path, conv_filters, num_labels, strategy=None)
+    except Exception as e:
+        logger.error(f"Error encountered while building model: {e}")
+        sys.exit(1)
+
     palette = ['red', 'blue', 'green', 'purple', 'pink',
                'cyan', 'magenta', 'orange', 'brown']
     colors = {'random_s': 'black', 'random_e': 'black',
@@ -98,10 +108,6 @@ def visualize_wrap(output_dir, output_file, model_name, model_type,
     os.makedirs(f"{output_dir}/plots", exist_ok=True)
     folder_path = os.path.join(output_dir, "full_length_pp_fa")
     pdf_filename = f'{output_dir}/plots/{output_file}.pdf'
-
-    if not num_reads and not read_names:
-        logger.error("You must either provide a value for 'num_reads' or specify 'read_names'.")
-        raise ValueError("You must either provide a value for 'num_reads' or specify 'read_names'.")
 
     selected_reads = []
     selected_read_names = []
@@ -165,10 +171,15 @@ def visualize_wrap(output_dir, output_file, model_name, model_type,
 
     # Perform annotation and plotting
     encoded_data = preprocess_sequences(selected_reads)
-    predictions = annotate_new_data_parallel(encoded_data, model, 
-                                             max_batch_size,
-                                             min_batch=min_batch_size, 
-                                             strategy=None,)
+    try:
+        predictions = annotate_new_data_parallel(encoded_data, model,
+                                                max_batch_size,
+                                                min_batch=min_batch_size,
+                                                strategy=None,)
+    except Exception as e:
+        logger.error(f"Encountered an error during annotation: {e}")
+        sys.exit(1)
+
     annotated_reads = extract_annotated_full_length_seqs(
             selected_reads, predictions, model_path_w_CRF,
             selected_read_lengths, label_binarizer, seq_order,
@@ -177,7 +188,7 @@ def visualize_wrap(output_dir, output_file, model_name, model_type,
     save_plots_to_pdf(selected_reads,
                       annotated_reads,
                       selected_read_names,
-                      pdf_filename, colors, 
+                      pdf_filename, colors,
                       chars_per_line=150)
 
     usage = resource.getrusage(resource.RUSAGE_CHILDREN)

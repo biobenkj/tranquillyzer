@@ -1,5 +1,5 @@
 from tensorflow.keras.layers import (
-    Input, Embedding, Conv1D, BatchNormalization, Dropout, 
+    Input, Embedding, Conv1D, BatchNormalization, Dropout,
     Bidirectional, LSTM, Dense, TimeDistributed, Add, MultiHeadAttention
 )
 from tensorflow.keras.losses import CategoricalCrossentropy
@@ -105,7 +105,7 @@ def ont_read_annotator(
     else:
         model = Model(inputs, logits)
         loss_fn = CategoricalCrossentropy(from_logits=True)
-        model.compile(optimizer=optimizer, 
-                      loss=loss_fn, 
+        model.compile(optimizer=optimizer,
+                      loss=loss_fn,
                       metrics=["accuracy"])
     return model

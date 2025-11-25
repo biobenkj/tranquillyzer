@@ -1,4 +1,4 @@
-def align_wrap(input_dir, ref, output_dir, preset, 
+def align_wrap(input_dir, ref, output_dir, preset,
                filt_flag, mapq, threads, add_minimap_args):
 
     import os
@@ -6,13 +6,13 @@ def align_wrap(input_dir, ref, output_dir, preset,
     import subprocess
     import resource
     import logging
-    
+
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s'
         )
     logger = logging.getLogger(__name__)
-    
+
     start = time.time()
 
     if os.path.exists(os.path.join(input_dir, "demuxed_fasta/demuxed.fastq")):
