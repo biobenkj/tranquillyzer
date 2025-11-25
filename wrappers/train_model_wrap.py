@@ -31,7 +31,7 @@ def load_libs():
     from scripts.extract_annotated_seqs import extract_annotated_full_length_seqs
     from scripts.visualize_annot import save_plots_to_pdf
 
-    return (os, gc, json, time, logging, pickle, 
+    return (os, gc, json, time, logging, pickle,
             random, itertools, Counter,
             np, pd, tf, SeqIO, Seq, SeqRecord,
             LabelBinarizer, shuffle,
@@ -70,7 +70,7 @@ def train_model_wrap(model_name, output_dir, param_file, training_seq_orders_fil
 
     base_dir = os.path.dirname(os.path.abspath(__file__))
     base_dir = os.path.join(base_dir, "..")
-    
+
     models_dir = os.path.join(base_dir, "models")
     models_dir = os.path.abspath(models_dir)
 
@@ -259,8 +259,8 @@ def train_model_wrap(model_name, output_dir, param_file, training_seq_orders_fil
                 mode='max'
             )
             early_stopping = tf.keras.callbacks.EarlyStopping(
-                monitor="val_loss_val", 
-                patience=1, 
+                monitor="val_loss_val",
+                patience=1,
                 restore_best_weights=True
                 )
 

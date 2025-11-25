@@ -29,7 +29,7 @@ def determine_bin(length, bin_size=500):
     return f"{bin_start}_{bin_end}bp"
 
 
-def extract_and_bin_reads(file_path, batch_size, 
+def extract_and_bin_reads(file_path, batch_size,
                           output_dir, output_base_qual):
     reads_by_bin = {}
     file_format = 'fasta' if file_path.endswith(('.fa', '.fasta', '.fa.gz', '.fasta.gz')) else 'fastq'
@@ -45,7 +45,7 @@ def extract_and_bin_reads(file_path, batch_size,
                     reads_by_bin[bin_name] = {'read_names': [], 'reads': [],
                                               'read_lengths': [], 'base_quals': []}
                 reads_by_bin[bin_name]['base_quals'].append(record.format("fastq").splitlines()[3])
-            
+
             else:
                 if bin_name not in reads_by_bin:
                     reads_by_bin[bin_name] = {'read_names': [], 'reads': [],
@@ -57,7 +57,7 @@ def extract_and_bin_reads(file_path, batch_size,
 
             # Once a bin reaches the batch size, save it and reset
             if len(reads_by_bin[bin_name]['reads']) >= batch_size:
-                dump_bin_data(output_dir, output_base_qual, bin_name, 
+                dump_bin_data(output_dir, output_base_qual, bin_name,
                               reads_by_bin[bin_name])
                 if output_base_qual:
                     reads_by_bin[bin_name] = {'read_names': [], 'reads': [],
@@ -111,7 +111,7 @@ def dump_bin_data(output_dir, output_base_qual, bin_name, data):
         logger.error(f"Error writing {tsv_filename}: {e}")
 
 
-def parallel_preprocess_data(file_list, output_dir, batch_size, 
+def parallel_preprocess_data(file_list, output_dir, batch_size,
                              output_base_qual, num_workers=4):
     total_files = len(file_list)
 

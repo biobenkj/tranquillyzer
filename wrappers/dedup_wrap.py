@@ -1,4 +1,4 @@
-def dedup_wrap(input_dir, lv_threshold, 
+def dedup_wrap(input_dir, lv_threshold,
                stranded, per_cell, threads):
     import os
     import time
@@ -7,13 +7,13 @@ def dedup_wrap(input_dir, lv_threshold,
     import subprocess
     import logging
     from scripts.deduplicate import deduplication_parallel
-    
+
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s'
         )
     logger = logging.getLogger(__name__)
-    
+
     start = time.time()
     logger.info("Starting duplicate marking process")
 
@@ -26,7 +26,7 @@ def dedup_wrap(input_dir, lv_threshold,
     deduplication_parallel(input_bam, out_bam,
                            lv_threshold, per_cell,
                            threads, stranded)
-    
+
     if not os.path.exists(out_bam):
         raise FileNotFoundError(f"Expected output BAM not found: {out_bam}")
 

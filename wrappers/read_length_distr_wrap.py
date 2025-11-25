@@ -4,13 +4,13 @@ def read_length_distr_wrap(output_dir):
     import resource
     import logging
     from scripts.plot_read_len_distr import plot_read_len_distr
-    
+
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s'
     )
     logger = logging.getLogger(__name__)
-    
+
     start = time.time()
     os.makedirs(f"{output_dir}/plots", exist_ok=True)
 

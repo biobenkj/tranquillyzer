@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 def plot_read_len_distr(parquet_dir, output_dir):
 
     os.makedirs(output_dir, exist_ok=True)
-    parquet_files = [os.path.join(parquet_dir, f) for f in os.listdir(parquet_dir) 
+    parquet_files = [os.path.join(parquet_dir, f) for f in os.listdir(parquet_dir)
                      if f.endswith('.parquet') and f != 'read_index.parquet']
 
     if not parquet_files:

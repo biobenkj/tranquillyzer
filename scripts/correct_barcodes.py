@@ -79,7 +79,7 @@ def write_reads_to_fasta(batch_reads, output_fmt, demuxed_fasta,
         else:
             with demuxed_fasta_lock:
                 fasta_file = open(demuxed_fasta, "a")
-        
+
         if output_fmt == "fastq":
             for header, sequence, quality in reads:
                 fasta_file.write(f"{header}\n{sequence}\n+\n{quality}\n")
@@ -167,7 +167,7 @@ def process_row(row, strand, barcode_columns,
     elif orientation == "-" and strand == "rev":
         pass
     else:
-        pass  
+        pass
 
     batch_reads = defaultdict(list)
     if output_fmt == "fasta":

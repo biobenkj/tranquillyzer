@@ -36,7 +36,7 @@ def load_checkpoint(checkpoint_file, start_bin):
 
 
 def process_full_length_reads_in_chunks_and_save(reads, original_read_names,
-                                                 strand, output_fmt, 
+                                                 strand, output_fmt,
                                                  base_qualities,
                                                  model_type, pass_num,
                                                  model_path_w_CRF,
@@ -81,7 +81,7 @@ def process_full_length_reads_in_chunks_and_save(reads, original_read_names,
             },
             **{
                 f'{label}_Ends': ', '.join(map(str, annotations['Ends']))
-                for label, annotations in annotated_read.items() 
+                for label, annotations in annotated_read.items()
                 if label not in {"architecture", "reason"} and 'Ends' in annotations
             },
             **{
@@ -148,7 +148,7 @@ def process_full_length_reads_in_chunks_and_save(reads, original_read_names,
     # Process barcodes in parallel
     if not valid_reads_df.empty:
         # logging.info("Correcting barcode and demuliplexing valid reads")
-        corrected_df, match_type_counts, cell_id_counts = bc_n_demultiplex(valid_reads_df, strand, 
+        corrected_df, match_type_counts, cell_id_counts = bc_n_demultiplex(valid_reads_df, strand,
                                                                            list(column_mapping.keys()),
                                                                            whitelist_dict, whitelist_df, threshold,
                                                                            output_dir, output_fmt, demuxed_fasta,
@@ -196,7 +196,7 @@ def process_full_length_reads_in_chunks_and_save(reads, original_read_names,
     gc.collect()
 
 
-def post_process_reads(reads, read_names, strand, output_fmt, 
+def post_process_reads(reads, read_names, strand, output_fmt,
                        base_qualities, model_type, pass_num,
                        model_path_w_CRF, predictions, label_binarizer,
                        cumulative_barcodes_stats, read_lengths,
@@ -287,7 +287,7 @@ def plot_read_n_cDNA_lengths(output_dir):
         # cDNA length distribution
         if len(log_cDNA_lengths[log_cDNA_lengths > 0]):
             plt.figure(figsize=(8, 6))
-            plt.hist(log_cDNA_lengths[log_cDNA_lengths > 0], 
+            plt.hist(log_cDNA_lengths[log_cDNA_lengths > 0],
                      bins=100, color='blue', edgecolor='black')
             plt.title('cDNA Length Distribution (Log Scale)')
             plt.xlabel('Log10(cDNA Length)')
