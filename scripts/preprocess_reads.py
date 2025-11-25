@@ -164,7 +164,7 @@ def convert_tsv_to_parquet(tsv_dir, row_group_size=1000000):
 
             parquet_file = os.path.join(tsv_dir, f"{bin_name}.parquet")
 
-            logger.info(f"\nConverting {tsv_file}")
+            logger.info(f"Converting {tsv_file}")
             df.sink_parquet(parquet_file,
                             compression="snappy",
                             row_group_size=row_group_size)
