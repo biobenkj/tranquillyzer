@@ -1,16 +1,18 @@
+# Global library imports - used by all functions in module
+import logging
+import queue
+import time
+
 def load_libs():
     import os
     import gc
     import sys
-    import time
     import resource
-    import logging
     import pickle
     import pandas as pd
     import multiprocessing as mp
     from multiprocessing import Manager
     from collections import defaultdict
-    import queue
     import psutil
     import polars as pl
 
@@ -30,8 +32,8 @@ def load_libs():
     from scripts.correct_barcodes import generate_barcodes_stats_pdf
     from scripts.demultiplex import generate_demux_stats_pdf
 
-    return (os, gc, sys, time, resource, logging, pickle, mp, Manager,
-            defaultdict, queue, psutil, pl, FileLock, pd,
+    return (os, gc, sys, resource, pickle, mp, Manager,
+            defaultdict, psutil, pl, FileLock, pd,
             model_predictions, post_process_reads,
             seq_orders, estimate_average_read_length_from_bin,
             calculate_total_rows, generate_barcodes_stats_pdf,
@@ -40,11 +42,6 @@ def load_libs():
 
 def collect_prediction_stats(result_queue, workers, match_type_counter, cell_id_counter, cumulative_barcodes_stats, max_idle_time=60):
     """Collect results from each model prediction and collate into shared stats"""
-    # FIXME: This is a bandaid fix
-    import logging
-    import queue
-    import time
-
     idle_start = None
 
     while any(worker.is_alive() for worker in workers) or not result_queue.empty():
@@ -85,8 +82,8 @@ def annotate_reads_wrap(output_dir, whitelist_file, output_fmt,
                         chunk_size, gpu_mem, target_tokens,
                         vram_headroom, min_batch_size, max_batch_size,
                         bc_lv_threshold, threads, max_queue_size):
-    (os, gc, sys, time, resource, logging, pickle, mp, Manager,
-     defaultdict, queue, psutil, pl, FileLock, pd,
+    (os, gc, sys, resource, pickle, mp, Manager,
+     defaultdict, psutil, pl, FileLock, pd,
      model_predictions, post_process_reads,
      seq_orders, estimate_average_read_length_from_bin,
      calculate_total_rows, generate_barcodes_stats_pdf,
