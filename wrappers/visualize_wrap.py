@@ -29,8 +29,8 @@ def load_libs():
             seq_orders, annotate_new_data_parallel, save_plots_to_pdf)
 
 
-def visualize_wrap(output_dir, output_file, model_name, model_type, 
-                   seq_order_file, gpu_mem, target_tokens, vram_headroom, 
+def visualize_wrap(output_dir, output_file, model_name, model_type,
+                   seq_order_file, gpu_mem, target_tokens, vram_headroom,
                    min_batch_size, max_batch_size, num_reads, read_names, threads):
 
     (os, time, resource, logging, random, pickle,
@@ -43,6 +43,12 @@ def visualize_wrap(output_dir, output_file, model_name, model_type,
         format='%(asctime)s - %(levelname)s - %(message)s'
         )
     logger = logging.getLogger(__name__)
+
+    # Exit early if bad inputs given
+    if not num_reads and not read_names:
+        logger.error("You must either provide a value for 'num_reads' or specify 'read_names'.")
+        raise ValueError("You must either provide a value for 'num_reads' or specify 'read_names'.")
+
     start = time.time()
 
     base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -98,10 +104,6 @@ def visualize_wrap(output_dir, output_file, model_name, model_type,
     os.makedirs(f"{output_dir}/plots", exist_ok=True)
     folder_path = os.path.join(output_dir, "full_length_pp_fa")
     pdf_filename = f'{output_dir}/plots/{output_file}.pdf'
-
-    if not num_reads and not read_names:
-        logger.error("You must either provide a value for 'num_reads' or specify 'read_names'.")
-        raise ValueError("You must either provide a value for 'num_reads' or specify 'read_names'.")
 
     selected_reads = []
     selected_read_names = []
