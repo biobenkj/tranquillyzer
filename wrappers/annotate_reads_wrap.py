@@ -3,6 +3,8 @@ import logging
 import queue
 import time
 
+# FIXME: Add logger to global context for handling everything within this module
+
 def load_libs():
     import os
     import gc
@@ -76,6 +78,32 @@ def collect_prediction_stats(result_queue, workers, match_type_counter, cell_id_
                 raise TimeoutError(
                     f"Result queue timed out after no data for {max_idle_time} seconds and no workers finished."
                 )
+
+def _empty_results_queue(result_queue, workers, max_idle_time=60):
+    """Runs when error encountered during model prediction. Clears queue to allow for clean exit."""
+    idle_start = None
+
+    while any(worker.is_alive() for worker in workers) or not result_queue.empty():
+        try:
+            # We need to get the items in the queue to clear it, but we don't actually want to do anything
+            _ = result_queue.get(timeout=15)
+
+            # Reset idle start since we retrieved a new result
+            idle_start = None
+        except queue.Empty:
+            # Wait for the queue to get more entries
+            if idle_start is None:
+                idle_start = time.time()
+                # FIXME: Make this logger
+                logging.info("Result queue idle during shutdown, waiting for more results")
+            elif time.time() - idle_start > max_idle_time:
+                # This may be overkill
+                raise TimeoutError(
+                    f"Result queue timed out during shutdown after no data received for {max_idle_time} seconds with workers still running."
+                )
+
+    # FIXME: Make this logger
+    logging.info("Results queue cleared. Commence shutdown due to error")
 
 def annotate_reads_wrap(output_dir, whitelist_file, output_fmt,
                         model_name, model_type, seq_order_file,
@@ -305,8 +333,7 @@ def annotate_reads_wrap(output_dir, whitelist_file, output_fmt,
             for _ in range(threads):
                 task_queue.put(None)
 
-            # FIXME: create function to wind down queue without processing
-            collect_prediction_stats(result_queue, workers, match_type_counter, cell_id_counter, cumulative_barcodes_stats)
+            _empty_results_queue(result_queue, workers)
             for worker in workers:
                 worker.join()
                 worker.close()
@@ -382,8 +409,7 @@ def annotate_reads_wrap(output_dir, whitelist_file, output_fmt,
                 for _ in range(threads):
                     task_queue.put(None)
 
-                # FIXME: create function to wind down queue without processing
-                collect_prediction_stats(result_queue, workers, match_type_counter, cell_id_counter, cumulative_barcodes_stats)
+                _empty_results_queue(result_queue, workers)
                 for worker in workers:
                     worker.join()
                     worker.close()
@@ -439,8 +465,7 @@ def annotate_reads_wrap(output_dir, whitelist_file, output_fmt,
             for _ in range(threads):
                 task_queue.put(None)
 
-            # FIXME: create function to wind down queue without processing
-            collect_prediction_stats(result_queue, workers, match_type_counter, cell_id_counter, cumulative_barcodes_stats)
+            _empty_results_queue(result_queue, workers)
             for worker in workers:
                 worker.join()
                 worker.close()
