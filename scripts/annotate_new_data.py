@@ -13,7 +13,6 @@ from numba import njit
 from scripts.train_new_model import ont_read_annotator
 from tensorflow.keras.models import load_model
 from tensorflow.keras import backend as K
-from tensorflow.keras.preprocessing.sequence import pad_sequences
 
 logging.basicConfig(
     level=logging.INFO,
@@ -38,11 +37,8 @@ if len(gpus) > 0:
 tf.config.optimizer.set_jit(True)
 
 @njit
-def encode_sequence_numba(read):
+def encode_sequence_numba(read, encoded_seq):
     """nucleotide encoding using ASCII lookup."""
-    # FIXME: Creating this array somewhat defeats the purpose of pre-allocating array
-    # in preprocess_sequences(...)
-    encoded_seq = np.zeros(len(read), dtype=np.int8)
     for i in range(len(read)):
         encoded_seq[i] = NUCLEOTIDE_TO_ID[ord(read[i])]
     return encoded_seq
@@ -55,7 +51,7 @@ def preprocess_sequences(sequences):
                              dtype=np.int8)  # Pre-allocate array
 
     for i, seq in enumerate(sequences):
-        encoded_array[i, :len(seq)] = encode_sequence_numba(seq)
+        encoded_array[i, :len(seq)] = encode_sequence_numba(seq, encoded_array[i, :len(seq)])
 
     return encoded_array
 
@@ -326,13 +322,8 @@ def model_predictions(parquet_file, chunk_start, chunk_size,
         read_lengths = df_chunk["read_length"].to_list()
         base_qualities = df_chunk["base_qualities"].to_list() if "base_qualities" in df_chunk.columns else None
 
-        encoded_data = preprocess_sequences(reads)
-
-        # FIXME: Why do we create encoded_data that is (n_reads) x (max_read_length) with 8-bit ints,
-        # then promptly turn around and convert the data into 32-bit ints and re-pad the data.
-        X_new_padded = pad_sequences(encoded_data,
-                                     padding="post",
-                                     dtype="int32")
+        # encoded_data = preprocess_sequences(reads)
+        X_new_padded = preprocess_sequences(reads)
 
         L = int(X_new_padded.shape[1])
         global_bs = choose_global_batch(
@@ -372,7 +363,7 @@ def model_predictions(parquet_file, chunk_start, chunk_size,
                 min_batch=min_batch, strategy=None,
             )
 
-        del df_chunk, encoded_data
+        del df_chunk, X_new_padded
         gc.collect()
         logger.info(f"Inferred labels for {bin_name}: chunk {chunk_idx}")
 
