@@ -270,6 +270,10 @@ def annotate_reads(
         None,
         help="Path to the seq_orders.tsv file. If not provided, uses the default from utils."
     ),
+    whitelist_base_dir: str = typer.Option(
+        None,
+        help="Directory containing whitelist files (cbc.txt, udi_i5.txt, udi_i7.txt) for edit distance calculations"
+    ),
     chunk_size: int = typer.Option(
         100000, help=(
         "Base chunk size, dynamically adjusts based on read length"
@@ -337,11 +341,12 @@ def annotate_reads(
         RuntimeError: Propagated exceptions from worker processes.
     """
     from wrappers.annotate_reads_wrap import annotate_reads_wrap
-    annotate_reads_wrap(output_dir, whitelist_file, output_fmt, 
+    annotate_reads_wrap(output_dir, whitelist_file, output_fmt,
                         model_name, model_type, seq_order_file,
                         chunk_size, gpu_mem, target_tokens,
                         vram_headroom, min_batch_size, max_batch_size,
-                        bc_lv_threshold, threads, max_queue_size)
+                        bc_lv_threshold, threads, max_queue_size,
+                        whitelist_base_dir)
 
 # ======================================
 # align inserts to the reference genome
