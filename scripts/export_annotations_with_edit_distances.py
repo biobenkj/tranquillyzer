@@ -8,9 +8,11 @@ import pandas as pd
 import polars as pl
 import seaborn as sns
 import tensorflow as tf
+from dataclasses import dataclass
 from filelock import FileLock
 import matplotlib.pyplot as plt
 from rapidfuzz.distance import Levenshtein
+from typing import Dict, List, Optional, Tuple
 
 from matplotlib.backends.backend_pdf import PdfPages
 from scripts.correct_barcodes import bc_n_demultiplex
@@ -20,51 +22,57 @@ from scripts.extract_annotated_seqs import extract_annotated_full_length_seqs
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+
+# Configuration
+@dataclass
+class AnnotateReadsConfig:
+    """Configuration for read annotation processing."""
+    output_fmt: str
+    model_type: str
+    pass_num: int
+    model_path_w_CRF: str
+    threshold: int
+    n_jobs: int
+    seq_orders_path: Optional[str] = None
+    model_name: Optional[str] = None
+    whitelist_base_dir: Optional[str] = None
+    metadata_path: Optional[str] = None
+    sample_id: Optional[str] = None
+
+
+# Constants
+WHITELIST_FILENAMES = {
+    'CBC': 'cbc.txt',
+    'i7': 'udi_i7.txt',
+    'i5': 'udi_i5.txt',
+}
+MAX_SEQ_DISPLAY_LENGTH = 50
+
+
 # Edit Distance Helper Functions
-# TODO: reorganize into an Annotations class for better portability
-# This exists in parallel with the export_annotations.py for testing
-# It will be integrated into the existing export_annotations.py once
-# it's confirmed to work as intended.
 
 def reverse_complement(seq):
-    """
-    Reverse complement a DNA sequence.
-    Re-defined here, but also exists in simulate_training_data.py
-    and also in correct_barcodes.py using a numba approach that is
-    jit compiled (faster)
-    """
+    """Reverse complement a DNA sequence."""
     complement = {'A': 'T', 'T': 'A', 'G': 'C', 'C': 'G', 'N': 'N'}
     return ''.join([complement.get(base, 'N') for base in seq[::-1]])
 
 
 def load_whitelist_sequences(whitelist_path):
-    """
-    Load sequences from whitelist file (tab-separated ID\tSequence).
-    These are typically the CBC\ti5\ti7 whitelist/samplesheet
-    """
+    """Load sequences from whitelist TSV file (ID\tSequence format)."""
     sequences = []
     if os.path.exists(whitelist_path):
         with open(whitelist_path, 'r') as f:
             for line in f:
                 parts = line.strip().split('\t')
                 if len(parts) >= 2:
-                    sequences.append(parts[1])  # Get sequence column
+                    sequences.append(parts[1])
     return sequences
 
 
 def calculate_min_edit_distance(detected_seq, reference_seqs, check_revcomp=True):
     """
-    Calculate minimum edit distance between detected sequence and reference list.
-
-    Args:
-        detected_seq: Detected sequence from read
-        reference_seqs: List of reference sequences or single reference sequence
-        check_revcomp: If True, also check reverse complement
-
-    Returns:
-        Tuple of (min_distance, match_orientation)
-          - min_distance: Minimum Levenshtein distance found
-          - match_orientation: 'fwd', 'rev', or None
+    Calculate minimum Levenshtein distance to reference sequences.
+    Returns (min_distance, orientation) where orientation is 'fwd', 'rev', or None.
     """
     if not detected_seq or not reference_seqs:
         return (None, None)
@@ -95,43 +103,20 @@ def calculate_min_edit_distance(detected_seq, reference_seqs, check_revcomp=True
     return (min_dist if min_dist != float('inf') else None, best_orientation)
 
 
-def load_file_whitelists(whitelist_base_dir=None, cbc_file=None, i5_file=None, i7_file=None):
-    """
-    Load whitelist sequences from separate files as fallback when not in sample sheet.
-
-    Priority:
-    1. If whitelist_base_dir provided, load from standard filenames (cbc.txt, udi_i5.txt, udi_i7.txt)
-    2. If individual files provided (cbc_file, i5_file, i7_file), load from those paths
-
-    Args:
-        whitelist_base_dir: Base directory containing cbc.txt, udi_i5.txt, udi_i7.txt
-        cbc_file: Direct path to CBC whitelist file (fallback)
-        i5_file: Direct path to i5 whitelist file (fallback)
-        i7_file: Direct path to i7 whitelist file (fallback)
-
-    Returns:
-        Dict mapping segment names ('CBC', 'i5', 'i7') to lists of sequences
-    """
+def load_file_whitelists(whitelist_base_dir):
+    """Load whitelist sequences from files in base directory. Returns dict mapping segment names to sequence lists."""
     whitelists = {}
 
-    # Define file mappings
-    if whitelist_base_dir:
-        whitelist_files = {
-            'CBC': os.path.join(whitelist_base_dir, 'cbc.txt'),
-            'i7': os.path.join(whitelist_base_dir, 'udi_i7.txt'),
-            'i5': os.path.join(whitelist_base_dir, 'udi_i5.txt'),
-        }
-    else:
-        # Fallback to individual files
-        whitelist_files = {
-            'CBC': cbc_file,
-            'i7': i7_file,
-            'i5': i5_file,
-        }
+    if not whitelist_base_dir:
+        return whitelists
 
-    # Load each whitelist
+    whitelist_files = {
+        segment: os.path.join(whitelist_base_dir, filename)
+        for segment, filename in WHITELIST_FILENAMES.items()
+    }
+
     for segment, filepath in whitelist_files.items():
-        if filepath and os.path.exists(filepath):
+        if os.path.exists(filepath):
             whitelists[segment] = load_whitelist_sequences(filepath)
             if whitelists[segment]:
                 logger.info(f"Loaded {len(whitelists[segment])} sequences for {segment} from {filepath}")
@@ -139,19 +124,13 @@ def load_file_whitelists(whitelist_base_dir=None, cbc_file=None, i5_file=None, i
                 logger.warning(f"No sequences loaded for {segment} from {filepath}")
         else:
             whitelists[segment] = []
-            if filepath:
-                logger.warning(f"Whitelist file not found for {segment}: {filepath}")
+            logger.warning(f"Whitelist file not found for {segment}: {filepath}")
 
     return whitelists
 
 
-def parse_seq_orders_for_known_sequences(seq_orders_path, model_name):
-    """
-    Parse seq_orders.tsv to get known sequences for a specific model.
-
-    Returns:
-        Dict mapping segment labels to their known sequences
-    """
+def parse_seq_orders_for_known_sequences(seq_orders_path: str, model_name: str) -> Dict[str, str]:
+    """Parse seq_orders.tsv to get known sequences for a model."""
     known_seqs = {}
 
     if not os.path.exists(seq_orders_path):
@@ -162,7 +141,6 @@ def parse_seq_orders_for_known_sequences(seq_orders_path, model_name):
         for line in f:
             parts = line.strip().split('\t')
             if len(parts) >= 3 and parts[0] == model_name:
-                # Parse segment order
                 seg_order = parts[1].strip('"').split(',')
                 # Parse sequences
                 seqs = parts[2].strip('"').split(',')
@@ -181,49 +159,137 @@ def parse_seq_orders_for_known_sequences(seq_orders_path, model_name):
     return known_seqs
 
 
+def load_sequences_from_metadata(metadata_path: Optional[str],
+                                 sample_id: str,
+                                 model_segments: List[str]) -> Dict[str, List[str]]:
+    """Parse metadata TSV (Sample_id\tCBC\ti7...) for sample-specific barcode sequences."""
+    if not metadata_path or not os.path.exists(metadata_path):
+        if metadata_path:
+            logger.warning(f"Metadata file not found: {metadata_path}")
+        return {}
+
+    try:
+        df = pd.read_csv(metadata_path, sep='\t', dtype=str, comment='#')
+        df.columns = df.columns.str.strip()
+
+        sample_col = next((col for col in df.columns if col.lower() == 'sample_id'), None)
+        if not sample_col:
+            logger.error("Metadata file missing 'Sample_id' column")
+            return {}
+
+        df[sample_col] = df[sample_col].str.strip()
+        sample_row = df[df[sample_col] == str(sample_id).strip()]
+
+        if sample_row.empty:
+            available_samples = df[sample_col].tolist()
+            logger.warning(
+                f"Sample ID '{sample_id}' not found in metadata. "
+                f"Available samples: {', '.join(available_samples[:10])}"
+                f"{'...' if len(available_samples) > 10 else ''}"
+            )
+            return {}
+
+        sample_sequences = {}
+        row_dict = sample_row.iloc[0].to_dict()
+
+        for segment in model_segments:
+            segment_col = next(
+                (col for col in row_dict.keys() if col.lower() == segment.lower()),
+                None
+            )
+
+            if segment_col and pd.notna(row_dict[segment_col]):
+                seq_val = str(row_dict[segment_col]).strip()
+                if not seq_val:
+                    continue
+
+                if ',' in seq_val:
+                    sequences = [s.strip() for s in seq_val.split(',') if s.strip()]
+                    sample_sequences[segment] = sequences
+                else:
+                    sample_sequences[segment] = [seq_val]
+
+                logger.info(
+                    f"Loaded {len(sample_sequences[segment])} sequence(s) for {segment} "
+                    f"from metadata (Sample: {sample_id})"
+                )
+
+        return sample_sequences
+
+    except Exception as e:
+        logger.error(f"Error parsing metadata file: {e}", exc_info=True)
+        return {}
+
+
 # Cache for loaded whitelists and sequences
 _CACHED_WHITELISTS = None
 _CACHED_KNOWN_SEQUENCES = None
+_CURRENT_CACHED_SAMPLE_ID = None
 
 
-def get_or_load_whitelists_and_sequences(seq_orders_path=None, model_name=None, whitelist_base_dir=None, whitelist_df=None):
+def get_or_load_whitelists_and_sequences(
+    seq_orders_path: Optional[str] = None,
+    model_name: Optional[str] = None,
+    whitelist_base_dir: Optional[str] = None,
+    whitelist_df: Optional[pd.DataFrame] = None,
+    metadata_path: Optional[str] = None,
+    sample_id: Optional[str] = None
+) -> Tuple[Dict[str, List[str]], Dict[str, str]]:
     """
-    Get or load whitelists and known sequences (cached).
-
-    Args:
-        seq_orders_path: Path to seq_orders.tsv file
-        model_name: Model name to look up in seq_orders.tsv
-        whitelist_base_dir: Base directory for whitelist files (optional)
-        whitelist_df: DataFrame with CBC, i5, i7 columns (alternative to separate files)
-
-    Returns:
-        Tuple of (whitelists_dict, known_sequences_dict)
+    Load whitelists and known sequences (cached).
+    Priority: 1) Metadata (sample-specific), 2) DataFrame, 3) Files.
+    Returns (whitelists_dict, known_sequences_dict).
     """
-    global _CACHED_WHITELISTS, _CACHED_KNOWN_SEQUENCES
+    global _CACHED_WHITELISTS, _CACHED_KNOWN_SEQUENCES, _CURRENT_CACHED_SAMPLE_ID
 
-    # Load whitelists if not cached
+    if sample_id != _CURRENT_CACHED_SAMPLE_ID:
+        if _CURRENT_CACHED_SAMPLE_ID is not None:
+            logger.info(f"Switching to Sample ID: {sample_id}. Clearing cache.")
+        _CACHED_WHITELISTS = None
+        _CURRENT_CACHED_SAMPLE_ID = sample_id
+
+    model_segments = []
+    if seq_orders_path and model_name:
+        if _CACHED_KNOWN_SEQUENCES is None:
+            _CACHED_KNOWN_SEQUENCES = parse_seq_orders_for_known_sequences(seq_orders_path, model_name)
+
+        with open(seq_orders_path, 'r') as f:
+            for line in f:
+                parts = line.strip().split('\t')
+                if len(parts) >= 3 and parts[0] == model_name:
+                    model_segments = parts[1].strip('"').split(',')
+                    break
+
     if _CACHED_WHITELISTS is None:
-        # Priority 1: Extract from DataFrame if provided
+        _CACHED_WHITELISTS = {}
+
+        # Priority 1: Metadata (sample-specific)
+        if metadata_path and sample_id:
+            metadata_seqs = load_sequences_from_metadata(metadata_path, sample_id, model_segments)
+            _CACHED_WHITELISTS.update(metadata_seqs)
+
+        remaining_segments = [s for s in model_segments if s not in _CACHED_WHITELISTS]
+
+        # Skip fixed sequences (adapters, cDNA, etc.)
+        known_seqs = _CACHED_KNOWN_SEQUENCES or {}
+        skip_segments = set(known_seqs.keys()).union(['cDNA', 'NN'])
+        target_segments = [s for s in remaining_segments if s not in skip_segments]
+
+        # Priority 2: DataFrame
         if whitelist_df is not None:
-            _CACHED_WHITELISTS = {}
-            for segment in ['CBC', 'i7', 'i5']:
+            for segment in target_segments:
                 if segment in whitelist_df.columns:
-                    # Get unique sequences and filter out the column name itself (in case header was duplicated)
                     sequences = whitelist_df[segment].dropna().unique().tolist()
-                    # Filter out any sequences that match the column name (header contamination)
                     sequences = [s for s in sequences if s != segment and str(s).strip() != segment]
                     _CACHED_WHITELISTS[segment] = sequences
                     logger.info(f"Loaded {len(_CACHED_WHITELISTS[segment])} sequences for {segment} from whitelist DataFrame")
-                else:
-                    _CACHED_WHITELISTS[segment] = []
-                    logger.warning(f"Column {segment} not found in whitelist DataFrame")
-        # Priority 2: Load from separate files
-        else:
-            _CACHED_WHITELISTS = load_file_whitelists(whitelist_base_dir=whitelist_base_dir)
 
-    # Load known sequences if not cached and parameters provided
-    if _CACHED_KNOWN_SEQUENCES is None and seq_orders_path and model_name:
-        _CACHED_KNOWN_SEQUENCES = parse_seq_orders_for_known_sequences(seq_orders_path, model_name)
+        # Priority 3: Files
+        elif whitelist_base_dir:
+            loaded_files = load_file_whitelists(whitelist_base_dir)
+            for segment in target_segments:
+                if segment in loaded_files:
+                    _CACHED_WHITELISTS[segment] = loaded_files[segment]
 
     return _CACHED_WHITELISTS, _CACHED_KNOWN_SEQUENCES or {}
 
@@ -242,129 +308,107 @@ def load_checkpoint(checkpoint_file, start_bin):
     return start_bin, 1
 
 
+# Helper Functions for Edit Distance Calculation
+
+def _calc_segment_edit_dist(annotated_read: dict, label: str, ref_seqs) -> dict:
+    """Calculate edit distance for a single segment."""
+    if label in annotated_read and annotated_read[label].get('Sequences'):
+        detected = annotated_read[label]['Sequences'][0]
+        dist, orient = calculate_min_edit_distance(detected, ref_seqs, check_revcomp=True)
+        return {f'{label}_edit_distance': dist, f'{label}_match_orientation': orient}
+    return {f'{label}_edit_distance': None, f'{label}_match_orientation': None}
+
+
+def get_all_edit_dist_cols(annotated_read: dict, segment_whitelists: dict,
+                            known_sequences: dict, barcodes: list) -> dict:
+    """Get edit distance columns for all segments with references."""
+    cols = {}
+
+    # Process segments with whitelists
+    for label, whitelist in segment_whitelists.items():
+        cols.update(_calc_segment_edit_dist(annotated_read, label, whitelist))
+
+    # Process fixed sequences (skip variable-length and barcodes)
+    for label, ref_seq in known_sequences.items():
+        if 'N' not in ref_seq and label not in barcodes:
+            cols.update(_calc_segment_edit_dist(annotated_read, label, ref_seq))
+
+    return cols
+
+
+def build_position_cols(annotated_read: dict) -> dict:
+    """Extract start/end position columns."""
+    starts = {
+        f'{label}_Starts': ', '.join(map(str, ann['Starts']))
+        for label, ann in annotated_read.items()
+        if label not in {"architecture", "reason", "read", "read_length", "orientation"} and 'Starts' in ann
+    }
+    ends = {
+        f'{label}_Ends': ', '.join(map(str, ann['Ends']))
+        for label, ann in annotated_read.items()
+        if label not in {"architecture", "reason", "read", "read_length", "orientation"} and 'Ends' in ann
+    }
+    return {**starts, **ends}
+
+
+def build_sequence_cols(annotated_read: dict, barcodes: list) -> dict:
+    """Extract barcode sequence columns."""
+    return {
+        f'{label}_Sequences': ', '.join(map(str, annotated_read[label]['Sequences']))
+        for label in barcodes
+        if label in annotated_read and 'Sequences' in annotated_read[label]
+    }
+
 
 # Main Processing Function with Edit Distances
 
-def process_full_length_reads_in_chunks_and_save(reads, original_read_names,
-                                                 strand, output_fmt,
-                                                 base_qualities,
-                                                 model_type, pass_num,
-                                                 model_path_w_CRF,
-                                                 predictions, bin_name, chunk_idx,
-                                                 label_binarizer,
-                                                 cumulative_barcodes_stats,
-                                                 actual_lengths, seq_order,
-                                                 add_header, output_dir,
-                                                 invalid_output_file,
-                                                 invalid_file_lock,
-                                                 valid_output_file,
-                                                 valid_file_lock, barcodes,
-                                                 whitelist_df, whitelist_dict,
-                                                 demuxed_fasta,
-                                                 demuxed_fasta_lock,
-                                                 ambiguous_fasta,
-                                                 ambiguous_fasta_lock,
-                                                 threshold, n_jobs,
-                                                 seq_orders_path=None,
-                                                 model_name=None,
-                                                 whitelist_base_dir=None):
-
+def process_full_length_reads_in_chunks_and_save(
+    config: AnnotateReadsConfig,
+    reads, original_read_names,
+    strand, base_qualities,
+    predictions, bin_name, chunk_idx,
+    label_binarizer,
+    cumulative_barcodes_stats,
+    actual_lengths, seq_order,
+    add_header, output_dir,
+    invalid_output_file,
+    invalid_file_lock,
+    valid_output_file,
+    valid_file_lock, barcodes,
+    whitelist_df, whitelist_dict,
+    demuxed_fasta,
+    demuxed_fasta_lock,
+    ambiguous_fasta,
+    ambiguous_fasta_lock
+):
+    """Process reads with edit distance calculations. Config object contains model/processing parameters."""
     reads_in_chunk = len(reads)
     logging.info(f"Post-processing {bin_name} chunk - {chunk_idx}: number of reads = {reads_in_chunk}")
 
     n_jobs_extract = min(16, reads_in_chunk)
     chunk_contiguous_annotated_sequences = extract_annotated_full_length_seqs(
-        reads, predictions, model_path_w_CRF,
+        reads, predictions, config.model_path_w_CRF,
         actual_lengths, label_binarizer, seq_order,
         barcodes, n_jobs_extract
     )
 
     # Load whitelists and known sequences for edit distance calculation
     segment_whitelists, known_sequences = get_or_load_whitelists_and_sequences(
-        seq_orders_path, model_name, whitelist_base_dir, whitelist_df
+        config.seq_orders_path, config.model_name, config.whitelist_base_dir, whitelist_df,
+        config.metadata_path, config.sample_id
     )
 
-    # Build edit distance columns for barcode segments (with whitelist matching)
-    def get_barcode_edit_dist_cols(annotated_read):
-        """Get edit distance columns for barcode segments."""
-        cols = {}
-        for label in ['CBC', 'i7', 'i5']:
-            if label in barcodes:
-                # Check if segment was detected in this read
-                if label in annotated_read and annotated_read[label].get('Sequences'):
-                    detected_seq = annotated_read[label]['Sequences'][0]
-                    min_dist, orientation = calculate_min_edit_distance(
-                        detected_seq,
-                        segment_whitelists.get(label, []),
-                        check_revcomp=True
-                    )
-                    cols[f'{label}_edit_distance'] = min_dist
-                    cols[f'{label}_match_orientation'] = orientation
-                else:
-                    # Segment not detected - fill with None (will be NA in TSV)
-                    cols[f'{label}_edit_distance'] = None
-                    cols[f'{label}_match_orientation'] = None
-        return cols
-
-    # Build edit distance columns for fixed sequences
-    def get_fixed_seq_edit_dist_cols(annotated_read):
-        """Get edit distance columns for fixed reference sequences."""
-        cols = {}
-        for label, ref_seq in known_sequences.items():
-            # Skip variable-length segments (those with N patterns)
-            if 'N' in ref_seq or label in barcodes:
-                continue
-
-            # Check if segment was detected in this read
-            if label in annotated_read and annotated_read[label].get('Sequences'):
-                detected_seq = annotated_read[label]['Sequences'][0]
-                min_dist, orientation = calculate_min_edit_distance(
-                    detected_seq,
-                    ref_seq,
-                    check_revcomp=True
-                )
-                cols[f'{label}_edit_distance'] = min_dist
-                cols[f'{label}_match_orientation'] = orientation
-            else:
-                # Segment not detected - fill with None (will be NA in TSV)
-                cols[f'{label}_edit_distance'] = None
-                cols[f'{label}_match_orientation'] = None
-        return cols
-
-    # DataFrame construction with edit distances
+    # Build DataFrame with all annotations and edit distances
     chunk_df = pd.DataFrame.from_records(
         (
             {
                 'ReadName': original_read_names[i],
                 'read_length': annotated_read['read_length'],
                 'read': annotated_read['read'],
-
-                # Existing columns: Start/End positions
-                **{
-                    f'{label}_Starts': ', '.join(map(str, annotations['Starts']))
-                    for label, annotations in annotated_read.items()
-                    if label not in {"architecture", "reason"} and 'Starts' in annotations
-                },
-                **{
-                    f'{label}_Ends': ', '.join(map(str, annotations['Ends']))
-                    for label, annotations in annotated_read.items()
-                    if label not in {"architecture", "reason"} and 'Ends' in annotations
-                },
-
-                # Existing barcode sequences
-                **{
-                    f'{label}_Sequences': ', '.join(map(str, annotated_read[label]['Sequences']))
-                    for label in barcodes
-                    if label in annotated_read and 'Sequences' in annotated_read[label]
-                },
-
-                # Edit distances for barcode segments (against whitelists)
-                **get_barcode_edit_dist_cols(annotated_read),
-
-                # Edit distances for fixed sequences (p7, RP1, RP2, p5, etc.)
-                **get_fixed_seq_edit_dist_cols(annotated_read),
-
-                'base_qualities': base_qualities[i] if output_fmt == "fastq" else None,
+                **build_position_cols(annotated_read),
+                **build_sequence_cols(annotated_read, barcodes),
+                **get_all_edit_dist_cols(annotated_read, segment_whitelists, known_sequences, barcodes),
+                'base_qualities': base_qualities[i] if config.output_fmt == "fastq" else None,
                 'architecture': annotated_read['architecture'],
                 'reason': annotated_read['reason'],
                 'orientation': annotated_read['orientation']
@@ -373,9 +417,7 @@ def process_full_length_reads_in_chunks_and_save(reads, original_read_names,
         )
     )
 
-    # Truncate long sequences to 50 bp to keep file sizes manageable
-    # This happens after edit distance calculation so accuracy is preserved
-    MAX_SEQ_DISPLAY_LENGTH = 50
+    # Truncate long sequences to keep file sizes manageable
     for col in chunk_df.columns:
         if '_Sequences' in col:
             chunk_df[col] = chunk_df[col].apply(
@@ -386,7 +428,7 @@ def process_full_length_reads_in_chunks_and_save(reads, original_read_names,
     invalid_reads_df = chunk_df[chunk_df['architecture'] == 'invalid']
     valid_reads_df = chunk_df[chunk_df['architecture'] != 'invalid']
 
-    if model_type == "HYB" and pass_num == 1:
+    if config.model_type == "HYB" and config.pass_num == 1:
         tmp_invalid_dir = os.path.join(output_dir, "tmp_invalid_reads")
         os.makedirs(tmp_invalid_dir, exist_ok=True)
 
@@ -450,10 +492,10 @@ def process_full_length_reads_in_chunks_and_save(reads, original_read_names,
         corrected_df, match_type_counts, cell_id_counts = bc_n_demultiplex(
             valid_reads_df, strand,
             list(column_mapping.keys()),
-            whitelist_dict, whitelist_df, threshold,
-            output_dir, output_fmt, demuxed_fasta,
+            whitelist_dict, whitelist_df, config.threshold,
+            output_dir, config.output_fmt, demuxed_fasta,
             demuxed_fasta_lock, ambiguous_fasta,
-            ambiguous_fasta_lock, n_jobs
+            ambiguous_fasta_lock, config.n_jobs
         )
 
         # Merge preserved columns back into corrected_df
@@ -512,23 +554,43 @@ def post_process_reads(reads, read_names, strand, output_fmt,
                        checkpoint_file, chunk_start, match_type_counter,
                        cell_id_counter, demuxed_fasta, demuxed_fasta_lock,
                        ambiguous_fasta, ambiguous_fasta_lock, njobs,
-                       seq_orders_path=None, model_name=None, whitelist_base_dir=None):
+                       seq_orders_path=None, model_name=None, whitelist_base_dir=None,
+                       metadata_path=None, sample_id=None):
+    """Post-process reads wrapper that constructs config and calls main processor."""
+
+    # Construct configuration object
+    config = AnnotateReadsConfig(
+        output_fmt=output_fmt,
+        model_type=model_type,
+        pass_num=pass_num,
+        model_path_w_CRF=model_path_w_CRF,
+        threshold=threshold,
+        n_jobs=njobs,
+        seq_orders_path=seq_orders_path,
+        model_name=model_name,
+        whitelist_base_dir=whitelist_base_dir,
+        metadata_path=metadata_path,
+        sample_id=sample_id
+    )
 
     results = process_full_length_reads_in_chunks_and_save(
-        reads, read_names, strand, output_fmt,
-        base_qualities, model_type, pass_num,
-        model_path_w_CRF, predictions,
-        bin_name, chunk_idx,
-        label_binarizer, cumulative_barcodes_stats,
-        read_lengths, seq_order,
-        add_header, output_dir,
-        invalid_output_file, invalid_file_lock,
-        valid_output_file, valid_file_lock,
-        barcodes, whitelist_df, whitelist_dict,
-        demuxed_fasta, demuxed_fasta_lock,
-        ambiguous_fasta, ambiguous_fasta_lock,
-        threshold, njobs,
-        seq_orders_path, model_name, whitelist_base_dir
+        config=config,
+        reads=reads, original_read_names=read_names,
+        strand=strand, base_qualities=base_qualities,
+        predictions=predictions, bin_name=bin_name, chunk_idx=chunk_idx,
+        label_binarizer=label_binarizer,
+        cumulative_barcodes_stats=cumulative_barcodes_stats,
+        actual_lengths=read_lengths, seq_order=seq_order,
+        add_header=add_header, output_dir=output_dir,
+        invalid_output_file=invalid_output_file,
+        invalid_file_lock=invalid_file_lock,
+        valid_output_file=valid_output_file,
+        valid_file_lock=valid_file_lock, barcodes=barcodes,
+        whitelist_df=whitelist_df, whitelist_dict=whitelist_dict,
+        demuxed_fasta=demuxed_fasta,
+        demuxed_fasta_lock=demuxed_fasta_lock,
+        ambiguous_fasta=ambiguous_fasta,
+        ambiguous_fasta_lock=ambiguous_fasta_lock
     )
 
     if results is not None:
