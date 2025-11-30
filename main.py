@@ -604,5 +604,87 @@ def train_model(model_name: str,
                      target_tokens, vram_headroom, min_batch_size, max_batch_size)
 
 
+# ======================================
+# evaluate trained model performance
+# ======================================
+
+
+@app.command(no_args_is_help=True)
+def score(
+    model_dir: str,
+    validation_data: str = typer.Option(
+        None,
+        help="Path to validation data (pickle file or directory). "
+             "If not provided, looks for validation data in model_dir parent."
+    ),
+    output_dir: str = typer.Option(
+        None,
+        help="Directory to save evaluation results. "
+             "If not provided, creates 'evaluation' subdirectory in model_dir."
+    ),
+    max_batch_size: int = typer.Option(
+        1024,
+        help="Maximum batch size for inference"
+    ),
+    min_batch_size: int = typer.Option(
+        16,
+        help="Minimum batch size for inference"
+    )
+):
+    """
+    Evaluate a trained model on validation/test data.
+
+    Loads a trained model and computes comprehensive evaluation metrics including:
+      - Per-segment precision, recall, F1-score
+      - Overall macro/micro-averaged metrics
+      - Confusion matrix
+      - Sequence-level accuracy
+      - Visualization plots (saved to PDF)
+
+    Args:
+        model_dir: Directory containing the trained model files (*.h5, *_lbl_bin.pkl, *_params.json).
+        validation_data: Path to validation reads/labels (pickle file or directory).
+                        If directory, expects 'validation_reads.pkl' and 'validation_labels.pkl'.
+                        If omitted, searches for 'simulated_data' in model_dir parent.
+        output_dir: Where to save evaluation outputs (TSV metrics, plots).
+                   Defaults to `<model_dir>/evaluation`.
+        max_batch_size: Maximum batch size for model inference.
+        min_batch_size: Minimum batch size for model inference.
+
+    Outputs (in output_dir):
+        - `<model_name>_per_segment_metrics.tsv`: Precision/recall/F1 per segment
+        - `<model_name>_overall_metrics.tsv`: Macro/micro averages, accuracy
+        - `<model_name>_confusion_matrix.tsv`: Confusion matrix
+        - `<model_name>_classification_report.txt`: Detailed classification report
+        - `<model_name>_evaluation_plots.pdf`: Visualizations (bar plots, heatmaps)
+
+    Raises:
+        FileNotFoundError: If model files or validation data cannot be found.
+        ValueError: If validation data format is unexpected.
+
+    Example:
+        # Evaluate a trained model using validation data from training
+        tranquillyzer score --model_dir output/my_model_0
+
+        # Specify custom validation data and output directory
+        tranquillyzer score --model_dir models/best_model \\
+                            --validation_data val_data/val.pkl \\
+                            --output_dir results/evaluation
+    """
+    import sys
+    sys.argv = ['evaluate_model.py',
+                '--model_dir', model_dir,
+                '--max_batch_size', str(max_batch_size),
+                '--min_batch_size', str(min_batch_size)]
+
+    if validation_data:
+        sys.argv.extend(['--validation_data', validation_data])
+    if output_dir:
+        sys.argv.extend(['--output_dir', output_dir])
+
+    from scripts.evaluate_model import main as evaluate_main
+    evaluate_main()
+
+
 if __name__ == "__main__":
     app()
