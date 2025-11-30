@@ -186,7 +186,7 @@ _CACHED_WHITELISTS = None
 _CACHED_KNOWN_SEQUENCES = None
 
 
-def get_or_load_whitelists_and_sequences(seq_orders_path=None, model_name=None, whitelist_base_dir=None):
+def get_or_load_whitelists_and_sequences(seq_orders_path=None, model_name=None, whitelist_base_dir=None, whitelist_df=None):
     """
     Get or load whitelists and known sequences (cached).
 
@@ -194,6 +194,7 @@ def get_or_load_whitelists_and_sequences(seq_orders_path=None, model_name=None, 
         seq_orders_path: Path to seq_orders.tsv file
         model_name: Model name to look up in seq_orders.tsv
         whitelist_base_dir: Base directory for whitelist files (optional)
+        whitelist_df: DataFrame with CBC, i5, i7 columns (alternative to separate files)
 
     Returns:
         Tuple of (whitelists_dict, known_sequences_dict)
@@ -202,7 +203,23 @@ def get_or_load_whitelists_and_sequences(seq_orders_path=None, model_name=None, 
 
     # Load whitelists if not cached
     if _CACHED_WHITELISTS is None:
-        _CACHED_WHITELISTS = load_file_whitelists(whitelist_base_dir=whitelist_base_dir)
+        # Priority 1: Extract from DataFrame if provided
+        if whitelist_df is not None:
+            _CACHED_WHITELISTS = {}
+            for segment in ['CBC', 'i7', 'i5']:
+                if segment in whitelist_df.columns:
+                    # Get unique sequences and filter out the column name itself (in case header was duplicated)
+                    sequences = whitelist_df[segment].dropna().unique().tolist()
+                    # Filter out any sequences that match the column name (header contamination)
+                    sequences = [s for s in sequences if s != segment and str(s).strip() != segment]
+                    _CACHED_WHITELISTS[segment] = sequences
+                    logger.info(f"Loaded {len(_CACHED_WHITELISTS[segment])} sequences for {segment} from whitelist DataFrame")
+                else:
+                    _CACHED_WHITELISTS[segment] = []
+                    logger.warning(f"Column {segment} not found in whitelist DataFrame")
+        # Priority 2: Load from separate files
+        else:
+            _CACHED_WHITELISTS = load_file_whitelists(whitelist_base_dir=whitelist_base_dir)
 
     # Load known sequences if not cached and parameters provided
     if _CACHED_KNOWN_SEQUENCES is None and seq_orders_path and model_name:
@@ -264,7 +281,7 @@ def process_full_length_reads_in_chunks_and_save(reads, original_read_names,
 
     # Load whitelists and known sequences for edit distance calculation
     segment_whitelists, known_sequences = get_or_load_whitelists_and_sequences(
-        seq_orders_path, model_name, whitelist_base_dir
+        seq_orders_path, model_name, whitelist_base_dir, whitelist_df
     )
 
     # Build edit distance columns for barcode segments (with whitelist matching)
@@ -272,16 +289,21 @@ def process_full_length_reads_in_chunks_and_save(reads, original_read_names,
         """Get edit distance columns for barcode segments."""
         cols = {}
         for label in ['CBC', 'i7', 'i5']:
-            if label in barcodes and label in annotated_read:
-                detected_seq = (annotated_read[label]['Sequences'][0]
-                               if annotated_read[label].get('Sequences') else "")
-                min_dist, orientation = calculate_min_edit_distance(
-                    detected_seq,
-                    segment_whitelists.get(label, []),
-                    check_revcomp=True
-                )
-                cols[f'{label}_edit_distance'] = min_dist
-                cols[f'{label}_match_orientation'] = orientation
+            if label in barcodes:
+                # Check if segment was detected in this read
+                if label in annotated_read and annotated_read[label].get('Sequences'):
+                    detected_seq = annotated_read[label]['Sequences'][0]
+                    min_dist, orientation = calculate_min_edit_distance(
+                        detected_seq,
+                        segment_whitelists.get(label, []),
+                        check_revcomp=True
+                    )
+                    cols[f'{label}_edit_distance'] = min_dist
+                    cols[f'{label}_match_orientation'] = orientation
+                else:
+                    # Segment not detected - fill with None (will be NA in TSV)
+                    cols[f'{label}_edit_distance'] = None
+                    cols[f'{label}_match_orientation'] = None
         return cols
 
     # Build edit distance columns for fixed sequences
@@ -293,9 +315,9 @@ def process_full_length_reads_in_chunks_and_save(reads, original_read_names,
             if 'N' in ref_seq or label in barcodes:
                 continue
 
-            if label in annotated_read:
-                detected_seq = (annotated_read[label]['Sequences'][0]
-                               if annotated_read[label].get('Sequences') else "")
+            # Check if segment was detected in this read
+            if label in annotated_read and annotated_read[label].get('Sequences'):
+                detected_seq = annotated_read[label]['Sequences'][0]
                 min_dist, orientation = calculate_min_edit_distance(
                     detected_seq,
                     ref_seq,
@@ -303,6 +325,10 @@ def process_full_length_reads_in_chunks_and_save(reads, original_read_names,
                 )
                 cols[f'{label}_edit_distance'] = min_dist
                 cols[f'{label}_match_orientation'] = orientation
+            else:
+                # Segment not detected - fill with None (will be NA in TSV)
+                cols[f'{label}_edit_distance'] = None
+                cols[f'{label}_match_orientation'] = None
         return cols
 
     # DataFrame construction with edit distances
@@ -347,6 +373,15 @@ def process_full_length_reads_in_chunks_and_save(reads, original_read_names,
         )
     )
 
+    # Truncate long sequences to 50 bp to keep file sizes manageable
+    # This happens after edit distance calculation so accuracy is preserved
+    MAX_SEQ_DISPLAY_LENGTH = 50
+    for col in chunk_df.columns:
+        if '_Sequences' in col:
+            chunk_df[col] = chunk_df[col].apply(
+                lambda x: x[:MAX_SEQ_DISPLAY_LENGTH] if isinstance(x, str) and len(x) > MAX_SEQ_DISPLAY_LENGTH else x
+            )
+
     # Filter out invalid reads
     invalid_reads_df = chunk_df[chunk_df['architecture'] == 'invalid']
     valid_reads_df = chunk_df[chunk_df['architecture'] != 'invalid']
@@ -380,7 +415,7 @@ def process_full_length_reads_in_chunks_and_save(reads, original_read_names,
         if not invalid_reads_df.empty:
             with invalid_file_lock:
                 add_header = not os.path.exists(invalid_output_file) or os.path.getsize(invalid_output_file) == 0
-                invalid_reads_df.to_csv(invalid_output_file, sep='\t', index=False, mode='a', header=add_header)
+                invalid_reads_df.to_csv(invalid_output_file, sep='\t', index=False, mode='a', header=add_header, na_rep='NA')
 
     # Process valid reads for barcodes
     column_mapping = {}
@@ -389,6 +424,29 @@ def process_full_length_reads_in_chunks_and_save(reads, original_read_names,
 
     # Process barcodes in parallel
     if not valid_reads_df.empty:
+        # Identify columns to preserve after demultiplexing
+        # bc_n_demultiplex returns a new DataFrame that only includes specific columns
+        # We need to preserve edit distances and segment positions (Starts/Ends/Sequences)
+        edit_dist_cols = [col for col in valid_reads_df.columns
+                         if col.endswith('_edit_distance') or col.endswith('_match_orientation')]
+
+        # Identify all segment position and sequence columns (for fixed sequences like p7, RP2, etc.)
+        segment_cols = [col for col in valid_reads_df.columns
+                       if col.endswith('_Starts') or col.endswith('_Ends') or col.endswith('_Sequences')]
+
+        # Remove barcode and commonly preserved columns (those already in bc_n_demultiplex output)
+        preserved_in_demux = ['cDNA_Starts', 'cDNA_Ends', 'UMI_Starts', 'UMI_Ends',
+                             'random_s_Starts', 'random_s_Ends', 'random_e_Starts', 'random_e_Ends',
+                             'polyA_Starts', 'polyA_Ends']
+        # Also exclude barcode segments since they're handled by bc_n_demultiplex
+        for barcode in barcodes:
+            preserved_in_demux.extend([f'{barcode}_Starts', f'{barcode}_Ends', f'{barcode}_Sequences'])
+
+        segment_cols = [col for col in segment_cols if col not in preserved_in_demux]
+
+        # Combine all columns to preserve
+        cols_to_preserve = edit_dist_cols + segment_cols
+
         corrected_df, match_type_counts, cell_id_counts = bc_n_demultiplex(
             valid_reads_df, strand,
             list(column_mapping.keys()),
@@ -397,6 +455,14 @@ def process_full_length_reads_in_chunks_and_save(reads, original_read_names,
             demuxed_fasta_lock, ambiguous_fasta,
             ambiguous_fasta_lock, n_jobs
         )
+
+        # Merge preserved columns back into corrected_df
+        if cols_to_preserve:
+            # Merge on ReadName to preserve edit distance and segment position columns
+            preserved_df = valid_reads_df[['ReadName'] + cols_to_preserve]
+            corrected_df = corrected_df.merge(preserved_df, on='ReadName', how='left')
+            logger.info(f"Preserved {len(cols_to_preserve)} columns in valid reads output "
+                       f"({len(edit_dist_cols)} edit distance, {len(segment_cols)} segment position)")
 
         # Compute barcode stats
         for barcode in list(column_mapping.keys()):
@@ -420,7 +486,7 @@ def process_full_length_reads_in_chunks_and_save(reads, original_read_names,
         # Save valid reads with all edit distance columns
         with valid_file_lock:
             add_header = not os.path.exists(valid_output_file) or os.path.getsize(valid_output_file) == 0
-            corrected_df.to_csv(valid_output_file, sep='\t', index=False, mode='a', header=add_header)
+            corrected_df.to_csv(valid_output_file, sep='\t', index=False, mode='a', header=add_header, na_rep='NA')
 
         logging.info(f"Post-processed {bin_name} chunk - {chunk_idx}: number of reads = {reads_in_chunk}")
 
