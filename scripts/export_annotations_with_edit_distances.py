@@ -41,11 +41,6 @@ class AnnotateReadsConfig:
 
 
 # Constants
-WHITELIST_FILENAMES = {
-    'CBC': 'cbc.txt',
-    'i7': 'udi_i7.txt',
-    'i5': 'udi_i5.txt',
-}
 MAX_SEQ_DISPLAY_LENGTH = 50
 
 
@@ -103,20 +98,32 @@ def calculate_min_edit_distance(detected_seq, reference_seqs, check_revcomp=True
     return (min_dist if min_dist != float('inf') else None, best_orientation)
 
 
-def load_file_whitelists(whitelist_base_dir):
-    """Load whitelist sequences from files in base directory. Returns dict mapping segment names to sequence lists."""
+def load_file_whitelists(whitelist_base_dir: str, segments: List[str]) -> Dict[str, List[str]]:
+    """
+    Load whitelist sequences from files in base directory.
+    Looks for files named {segment}.txt (e.g., CBC.txt, i7.txt, i5.txt).
+    Returns dict mapping segment names to sequence lists.
+    """
     whitelists = {}
 
-    if not whitelist_base_dir:
+    if not whitelist_base_dir or not segments:
         return whitelists
 
-    whitelist_files = {
-        segment: os.path.join(whitelist_base_dir, filename)
-        for segment, filename in WHITELIST_FILENAMES.items()
-    }
+    for segment in segments:
+        # Try common filename patterns
+        possible_files = [
+            os.path.join(whitelist_base_dir, f"{segment}.txt"),
+            os.path.join(whitelist_base_dir, f"{segment.lower()}.txt"),
+            os.path.join(whitelist_base_dir, f"udi_{segment.lower()}.txt"),  # For i7/i5 style
+        ]
 
-    for segment, filepath in whitelist_files.items():
-        if os.path.exists(filepath):
+        filepath = None
+        for candidate in possible_files:
+            if os.path.exists(candidate):
+                filepath = candidate
+                break
+
+        if filepath:
             whitelists[segment] = load_whitelist_sequences(filepath)
             if whitelists[segment]:
                 logger.info(f"Loaded {len(whitelists[segment])} sequences for {segment} from {filepath}")
@@ -124,7 +131,7 @@ def load_file_whitelists(whitelist_base_dir):
                 logger.warning(f"No sequences loaded for {segment} from {filepath}")
         else:
             whitelists[segment] = []
-            logger.warning(f"Whitelist file not found for {segment}: {filepath}")
+            logger.debug(f"No whitelist file found for {segment} (tried: {', '.join(possible_files)})")
 
     return whitelists
 
@@ -286,7 +293,7 @@ def get_or_load_whitelists_and_sequences(
 
         # Priority 3: Files
         elif whitelist_base_dir:
-            loaded_files = load_file_whitelists(whitelist_base_dir)
+            loaded_files = load_file_whitelists(whitelist_base_dir, target_segments)
             for segment in target_segments:
                 if segment in loaded_files:
                     _CACHED_WHITELISTS[segment] = loaded_files[segment]
