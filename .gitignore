@@ -2,7 +2,8 @@
 .DS_Store
 ._.DS_Store
 
-# Dockerfile
+# Singularity image
+tranquillyzer.sif
 
 # Unwanted hidden files
 ._* 

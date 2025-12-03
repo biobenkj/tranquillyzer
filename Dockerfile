@@ -17,15 +17,15 @@ RUN micromamba run -n base \
     micromamba run -n base pip install "tensorflow-addons==0.22.*"
 
 # Stage 2: runtime image
-FROM nvidia/cuda:12.2.2-cudnn8-runtime-ubuntu22.04
+FROM ubuntu:22.04
+ENV DEBIAN_FRONTEND=noninteractive
 
 # Copy conda env from builder
 COPY --from=builder /opt/conda /opt/conda
 ENV PATH=/opt/conda/bin:$PATH
 
-RUN apt-get update && apt-get install -y \
-    curl git wget bzip2 libglib2.0-0 libxext6 libsm6 libxrender1 \
- && rm -rf /var/lib/apt/lists/*
+# LD_LIBRARY_PATH expansion
+ENV LD_LIBRARY_PATH=/opt/conda/lib
 
 WORKDIR /app
 COPY . .
