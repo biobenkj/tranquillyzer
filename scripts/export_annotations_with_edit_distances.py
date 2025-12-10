@@ -584,8 +584,7 @@ def process_full_length_reads_in_chunks_and_save(
                 # Merge on ReadName to preserve edit distance, segment position, and essential columns
                 preserved_df = valid_reads_df[['ReadName'] + cols_to_preserve]
                 corrected_df = corrected_df.merge(preserved_df, on='ReadName', how='left')
-                logger.info(f"Preserved {len(cols_to_preserve)} columns in valid reads output "
-                           f"(filtered to exclude columns already in bc_n_demultiplex output)")
+                logger.info(f"Preserved {len(cols_to_preserve)} columns in valid reads output")
             else:
                 logger.info("No additional columns to preserve - all needed columns already in bc_n_demultiplex output")
 
