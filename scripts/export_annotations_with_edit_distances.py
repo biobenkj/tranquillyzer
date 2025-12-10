@@ -35,7 +35,6 @@ class AnnotateReadsConfig:
     n_jobs: int
     seq_orders_path: Optional[str] = None
     model_name: Optional[str] = None
-    whitelist_base_dir: Optional[str] = None
     whitelist_paths: Optional[Dict[str, str]] = None
     metadata_path: Optional[str] = None
     sample_id: Optional[str] = None
@@ -69,8 +68,16 @@ def load_whitelist_sequences(whitelist_path):
 
 def calculate_min_edit_distance(detected_seq, reference_seqs, check_revcomp=True):
     """
-    Calculate minimum Levenshtein distance to reference sequences.
-    Returns (min_distance, orientation) where orientation is 'fwd', 'rev', or None.
+    Calculate the minimum Levenshtein distance between a detected sequence and reference(s).
+
+    Args:
+        detected_seq (str): Observed sequence string.
+        reference_seqs (str | list[str]): Reference sequence or list of reference sequences.
+        check_revcomp (bool): If True, also compare reverse complement of detected_seq.
+
+    Returns:
+        tuple[int | None, str | None]: (minimum edit distance, orientation), where orientation
+        is 'fwd', 'rev', or None when no references are provided.
     """
     if not detected_seq or not reference_seqs:
         return (None, None)
@@ -101,46 +108,17 @@ def calculate_min_edit_distance(detected_seq, reference_seqs, check_revcomp=True
     return (min_dist if min_dist != float('inf') else None, best_orientation)
 
 
-def load_file_whitelists(whitelist_base_dir: str, segments: List[str]) -> Dict[str, List[str]]:
-    """
-    Load whitelist sequences from files in base directory.
-    Looks for files named {segment}.txt (e.g., CBC.txt, i7.txt, i5.txt).
-    Returns dict mapping segment names to sequence lists.
-    """
-    whitelists = {}
-
-    if not whitelist_base_dir or not segments:
-        return whitelists
-
-    for segment in segments:
-        # Try common filename patterns
-        possible_files = [
-            os.path.join(whitelist_base_dir, f"{segment}.txt"),
-            os.path.join(whitelist_base_dir, f"{segment.lower()}.txt"),
-            os.path.join(whitelist_base_dir, f"udi_{segment.lower()}.txt"),  # For i7/i5 style
-        ]
-
-        filepath = None
-        for candidate in possible_files:
-            if os.path.exists(candidate):
-                filepath = candidate
-                break
-
-        if filepath:
-            whitelists[segment] = load_whitelist_sequences(filepath)
-            if whitelists[segment]:
-                logger.info(f"Loaded {len(whitelists[segment])} sequences for {segment} from {filepath}")
-            else:
-                logger.warning(f"No sequences loaded for {segment} from {filepath}")
-        else:
-            whitelists[segment] = []
-            logger.debug(f"No whitelist file found for {segment} (tried: {', '.join(possible_files)})")
-
-    return whitelists
-
-
 def load_whitelist_paths(whitelist_paths: Dict[str, str], segments: List[str]) -> Dict[str, List[str]]:
-    """Load whitelists from explicit segment:path mappings, restricted to provided segments list."""
+    """
+    Load whitelists from explicit segment:path mappings, restricted to provided segments list.
+
+    Args:
+        whitelist_paths: Mapping of segment name -> file path.
+        segments: Segment names allowed for loading (typically from seq_orders).
+
+    Returns:
+        dict[str, list[str]]: Loaded whitelist sequences keyed by segment.
+    """
     whitelists = {}
     allowed = set(segments)
 
@@ -263,7 +241,6 @@ _CACHED_WHITELIST_PATHS = None
 def get_or_load_whitelists_and_sequences(
     seq_orders_path: Optional[str] = None,
     model_name: Optional[str] = None,
-    whitelist_base_dir: Optional[str] = None,
     whitelist_df: Optional[pd.DataFrame] = None,
     metadata_path: Optional[str] = None,
     sample_id: Optional[str] = None,
@@ -271,8 +248,20 @@ def get_or_load_whitelists_and_sequences(
 ) -> Tuple[Dict[str, List[str]], Dict[str, str]]:
     """
     Load whitelists and known sequences (cached).
-    Priority: 1) Metadata (sample-specific), 2) DataFrame, 3) Files.
-    Returns (whitelists_dict, known_sequences_dict).
+
+    Priority: 1) Metadata (sample-specific), 2) explicit whitelist_paths,
+    3) whitelist DataFrame.
+
+    Args:
+        seq_orders_path: Path to seq_orders.tsv for model segments.
+        model_name: Model key used to select seq order row.
+        whitelist_df: Optional DataFrame containing whitelist columns.
+        metadata_path: Optional metadata TSV for sample-specific barcodes.
+        sample_id: Sample identifier to lookup in metadata.
+        whitelist_paths: Explicit mapping of segment->whitelist file.
+
+    Returns:
+        tuple(dict[str, list[str]], dict[str, str]): (whitelists by segment, fixed known sequences).
     """
     global _CACHED_WHITELISTS, _CACHED_KNOWN_SEQUENCES, _CURRENT_CACHED_SAMPLE_ID, _CACHED_WHITELIST_PATHS
 
@@ -334,23 +323,18 @@ def get_or_load_whitelists_and_sequences(
                     _CACHED_WHITELISTS[segment] = sequences
                     logger.info(f"Loaded {len(_CACHED_WHITELISTS[segment])} sequences for {segment} from whitelist DataFrame")
 
-        # Priority 4: Files
-        elif whitelist_base_dir:
-            loaded_files = load_file_whitelists(whitelist_base_dir, target_segments)
-            for segment in target_segments:
-                if segment in loaded_files:
-                    _CACHED_WHITELISTS[segment] = loaded_files[segment]
-
     return _CACHED_WHITELISTS, _CACHED_KNOWN_SEQUENCES or {}
 
 # Checkpointing Functions
 
 def save_checkpoint(checkpoint_file, bin_name, chunk):
+    """Write checkpoint progress to disk (bin name and chunk index)."""
     with open(checkpoint_file, "w") as f:
         f.write(f"{bin_name},{chunk}")
 
 
 def load_checkpoint(checkpoint_file, start_bin):
+    """Load checkpoint progress; return (bin_name, chunk_idx) or defaults if missing."""
     if os.path.exists(checkpoint_file):
         with open(checkpoint_file, "r") as f:
             bin_name, chunk = f.readline().strip().split(",")
@@ -361,7 +345,17 @@ def load_checkpoint(checkpoint_file, start_bin):
 # Helper Functions for Edit Distance Calculation
 
 def _calc_segment_edit_dist(annotated_read: dict, label: str, ref_seqs) -> dict:
-    """Calculate edit distance for a single segment."""
+    """
+    Calculate edit distance for a single segment.
+
+    Args:
+        annotated_read: Dict containing segment annotations incl. 'Sequences'.
+        label: Segment label to evaluate.
+        ref_seqs: Reference sequence(s) to compare against.
+
+    Returns:
+        dict: Keys {<label>_edit_distance, <label>_match_orientation}.
+    """
     if label in annotated_read and annotated_read[label].get('Sequences'):
         detected = annotated_read[label]['Sequences'][0]
         dist, orient = calculate_min_edit_distance(detected, ref_seqs, check_revcomp=True)
@@ -371,7 +365,18 @@ def _calc_segment_edit_dist(annotated_read: dict, label: str, ref_seqs) -> dict:
 
 def get_all_edit_dist_cols(annotated_read: dict, segment_whitelists: dict,
                             known_sequences: dict, barcodes: list) -> dict:
-    """Get edit distance columns for all segments with references."""
+    """
+    Get edit distance columns for all segments with references.
+
+    Args:
+        annotated_read: Per-read annotation dict with segment info.
+        segment_whitelists: Dict of segment->list of whitelist sequences.
+        known_sequences: Dict of fixed segment->sequence.
+        barcodes: List of barcode segment labels (to exclude from fixed sequences).
+
+    Returns:
+        dict: Combined edit distance and orientation fields.
+    """
     cols = {}
 
     # Process segments with whitelists
@@ -387,7 +392,15 @@ def get_all_edit_dist_cols(annotated_read: dict, segment_whitelists: dict,
 
 
 def build_position_cols(annotated_read: dict) -> dict:
-    """Extract start/end position columns."""
+    """
+    Extract start/end position columns.
+
+    Args:
+        annotated_read: Per-read annotation dict with segment positions.
+
+    Returns:
+        dict: Keys like '<label>_Starts' and '<label>_Ends' with comma-joined indices.
+    """
     starts = {
         f'{label}_Starts': ', '.join(map(str, ann['Starts']))
         for label, ann in annotated_read.items()
@@ -402,7 +415,16 @@ def build_position_cols(annotated_read: dict) -> dict:
 
 
 def build_sequence_cols(annotated_read: dict, barcodes: list) -> dict:
-    """Extract barcode sequence columns."""
+    """
+    Extract barcode sequence columns.
+
+    Args:
+        annotated_read: Per-read annotation dict with sequence strings.
+        barcodes: Labels treated as barcodes.
+
+    Returns:
+        dict: Keys like '<barcode>_Sequences' with comma-joined sequences.
+    """
     return {
         f'{label}_Sequences': ', '.join(map(str, annotated_read[label]['Sequences']))
         for label in barcodes
@@ -431,7 +453,40 @@ def process_full_length_reads_in_chunks_and_save(
     ambiguous_fasta,
     ambiguous_fasta_lock
 ):
-    """Process reads with edit distance calculations. Config object contains model/processing parameters."""
+    """
+    Process reads with edit distance calculations and write outputs.
+
+    Args:
+        config: AnnotateReadsConfig with processing toggles.
+        reads (list[str]): Raw read strings for the chunk.
+        original_read_names (list[str]): Read identifiers aligned with reads.
+        strand (str): Library strand orientation ("fwd"/"rev").
+        base_qualities (list[str] | list[None]): Base quality strings if FASTQ output.
+        predictions: Model predictions for the chunk (shape matches reads).
+        bin_name (str): Bin identifier for logging/checkpointing.
+        chunk_idx (int): Chunk index within bin.
+        label_binarizer: Label binarizer used to decode predictions.
+        cumulative_barcodes_stats (dict): Running stats for barcodes.
+        actual_lengths (list[int]): True read lengths per read.
+        seq_order (list[str]): Model segment order.
+        add_header (bool): Whether to write TSV header.
+        output_dir (str): Output directory root.
+        invalid_output_file (str): Path for invalid reads TSV.
+        invalid_file_lock (FileLock): Lock for invalid reads output.
+        valid_output_file (str): Path for valid reads TSV.
+        valid_file_lock (FileLock): Lock for valid reads output.
+        barcodes (list[str]): Barcode segment labels.
+        whitelist_df (pd.DataFrame): Whitelist dataframe for demuxing.
+        whitelist_dict (dict): Demux whitelist dictionary.
+        demuxed_fasta (str): Path to demuxed FASTA/FASTQ output.
+        demuxed_fasta_lock (FileLock): Lock for demuxed output.
+        ambiguous_fasta (str): Path to ambiguous reads output.
+        ambiguous_fasta_lock (FileLock): Lock for ambiguous output.
+
+    Returns:
+        tuple | None: (match_type_counts, cell_id_counts, cumulative_barcodes_stats)
+        or None when no valid reads.
+    """
     reads_in_chunk = len(reads)
     logging.info(f"Post-processing {bin_name} chunk - {chunk_idx}: number of reads = {reads_in_chunk}")
 
@@ -446,8 +501,12 @@ def process_full_length_reads_in_chunks_and_save(
     segment_whitelists, known_sequences = {}, {}
     if config.include_edit_distances:
         segment_whitelists, known_sequences = get_or_load_whitelists_and_sequences(
-            config.seq_orders_path, config.model_name, config.whitelist_base_dir, whitelist_df,
-            config.metadata_path, config.sample_id, config.whitelist_paths
+            seq_orders_path=config.seq_orders_path,
+            model_name=config.model_name,
+            whitelist_df=whitelist_df,
+            metadata_path=config.metadata_path,
+            sample_id=config.sample_id,
+            whitelist_paths=config.whitelist_paths
         )
 
     # Build DataFrame with all annotations and edit distances
@@ -636,12 +695,28 @@ def post_process_reads(reads, read_names, strand, output_fmt,
                        checkpoint_file, chunk_start, match_type_counter,
                        cell_id_counter, demuxed_fasta, demuxed_fasta_lock,
                        ambiguous_fasta, ambiguous_fasta_lock, njobs,
-                       seq_orders_path=None, model_name=None, whitelist_base_dir=None,
+                       seq_orders_path=None, model_name=None,
                        metadata_path=None, sample_id=None,
                        include_edit_distances=False,
                        include_sequences_in_valid_output=False,
                        whitelist_paths=None):
-    """Post-process reads wrapper that constructs config and calls main processor."""
+    """
+    Wrapper to construct config and run chunk-level post-processing.
+
+    Args mirror process_full_length_reads_in_chunks_and_save with additional:
+        model_type (str): "REG"/"CRF"/"HYB".
+        pass_num (int): Current pass number.
+        threshold (int): Barcode correction threshold.
+        checkpoint_file (str): Path to checkpoint file.
+        chunk_start (int): Starting chunk index for checkpointing.
+        match_type_counter, cell_id_counter (defaultdict): Shared counters.
+        njobs (int): Parallel jobs for demux.
+        seq_orders_path, model_name: For loading segment orders.
+        whitelist_paths (dict | None): Explicit whitelist segment->path mapping.
+
+    Returns:
+        tuple: Updated (cumulative_barcodes_stats, match_type_counter, cell_id_counter)
+    """
 
     # Construct configuration object
     config = AnnotateReadsConfig(
@@ -653,7 +728,6 @@ def post_process_reads(reads, read_names, strand, output_fmt,
         n_jobs=njobs,
         seq_orders_path=seq_orders_path,
         model_name=model_name,
-        whitelist_base_dir=whitelist_base_dir,
         whitelist_paths=whitelist_paths,
         metadata_path=metadata_path,
         sample_id=sample_id,
@@ -697,6 +771,13 @@ def post_process_reads(reads, read_names, strand, output_fmt,
 
 
 def filtering_reason_stats(reason_counter_by_bin, output_dir):
+    """
+    Save raw and normalized filtering reason counts by bin.
+
+    Args:
+        reason_counter_by_bin (dict): {bin_name: {reason: count}} structure.
+        output_dir (str): Directory to write TSV outputs.
+    """
 
     raw_counts_df = pd.DataFrame.from_dict(reason_counter_by_bin, orient='index').fillna(0).T
     total_reads = raw_counts_df.sum(axis=0)
@@ -710,6 +791,12 @@ def filtering_reason_stats(reason_counter_by_bin, output_dir):
 
 
 def plot_read_n_cDNA_lengths(output_dir):
+    """
+    Plot read length and cDNA length distributions from annotations_valid.parquet.
+
+    Args:
+        output_dir (str): Directory containing annotations_valid.parquet and destination for plots.
+    """
     df = pl.read_parquet(f"{output_dir}/annotations_valid.parquet",
                          columns=["read_length", "cDNA_length"])
     read_lengths = []

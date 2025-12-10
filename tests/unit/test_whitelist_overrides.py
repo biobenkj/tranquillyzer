@@ -43,7 +43,6 @@ def test_explicit_whitelists_respect_seq_order(tmp_path):
     whitelists, known = exp.get_or_load_whitelists_and_sequences(
         seq_orders_path=str(seq_orders_path),
         model_name="modelA",
-        whitelist_base_dir=None,
         whitelist_df=None,
         metadata_path=None,
         sample_id=None,

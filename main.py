@@ -293,10 +293,6 @@ def annotate_reads(
         None,
         help="Path to the seq_orders.tsv file. If not provided, uses the default from utils."
     ),
-    whitelist_base_dir: str = typer.Option(
-        None,
-        help="Directory containing whitelist files (cbc.txt, udi_i5.txt, udi_i7.txt) for edit distance calculations"
-    ),
     whitelists: str = typer.Option(
         None,
         help="Comma-separated whitelist overrides in the form <segment>:<file>. Only segments present in seq_orders are loaded."
@@ -357,7 +353,6 @@ def annotate_reads(
         output_fmt: "fasta" or "fastq" for demultiplexed outputs.
         model_name: Base model label (without `_w_CRF`).
         model_type: "REG", "CRF", or "HYB" (REG pass then CRF on invalid).
-        whitelist_base_dir: Directory of whitelist files used for edit-distance calculations.
         whitelists: Comma-separated segment:path overrides for edit-distance whitelists (only segments in seq_orders are used).
         chunk_size: Row group size for final Parquet conversions.
         gpu_mem: Optional GPU memory budget string (e.g., "12" or "8,16").
@@ -390,7 +385,7 @@ def annotate_reads(
                         chunk_size, gpu_mem, target_tokens,
                         vram_headroom, min_batch_size, max_batch_size,
                         bc_lv_threshold, threads, max_queue_size,
-                        whitelist_base_dir, include_edit_distances,
+                        include_edit_distances,
                         include_sequences, whitelist_paths)
 
 # ======================================
