@@ -36,8 +36,11 @@ class AnnotateReadsConfig:
     seq_orders_path: Optional[str] = None
     model_name: Optional[str] = None
     whitelist_base_dir: Optional[str] = None
+    whitelist_paths: Optional[Dict[str, str]] = None
     metadata_path: Optional[str] = None
     sample_id: Optional[str] = None
+    include_edit_distances: bool = False
+    include_sequences_in_valid_output: bool = False
 
 
 # Constants
@@ -132,6 +135,28 @@ def load_file_whitelists(whitelist_base_dir: str, segments: List[str]) -> Dict[s
         else:
             whitelists[segment] = []
             logger.debug(f"No whitelist file found for {segment} (tried: {', '.join(possible_files)})")
+
+    return whitelists
+
+
+def load_whitelist_paths(whitelist_paths: Dict[str, str], segments: List[str]) -> Dict[str, List[str]]:
+    """Load whitelists from explicit segment:path mappings, restricted to provided segments list."""
+    whitelists = {}
+    allowed = set(segments)
+
+    for segment, path in whitelist_paths.items():
+        if segment not in allowed:
+            logger.info(f"Ignoring whitelist for '{segment}' (not present in model seq order)")
+            continue
+
+        if os.path.exists(path):
+            whitelists[segment] = load_whitelist_sequences(path)
+            if whitelists[segment]:
+                logger.info(f"Loaded {len(whitelists[segment])} sequences for {segment} from {path}")
+            else:
+                logger.warning(f"No sequences loaded for {segment} from {path}")
+        else:
+            logger.warning(f"Whitelist file not found for {segment}: {path}")
 
     return whitelists
 
@@ -232,6 +257,7 @@ def load_sequences_from_metadata(metadata_path: Optional[str],
 _CACHED_WHITELISTS = None
 _CACHED_KNOWN_SEQUENCES = None
 _CURRENT_CACHED_SAMPLE_ID = None
+_CACHED_WHITELIST_PATHS = None
 
 
 def get_or_load_whitelists_and_sequences(
@@ -240,20 +266,28 @@ def get_or_load_whitelists_and_sequences(
     whitelist_base_dir: Optional[str] = None,
     whitelist_df: Optional[pd.DataFrame] = None,
     metadata_path: Optional[str] = None,
-    sample_id: Optional[str] = None
+    sample_id: Optional[str] = None,
+    whitelist_paths: Optional[Dict[str, str]] = None
 ) -> Tuple[Dict[str, List[str]], Dict[str, str]]:
     """
     Load whitelists and known sequences (cached).
     Priority: 1) Metadata (sample-specific), 2) DataFrame, 3) Files.
     Returns (whitelists_dict, known_sequences_dict).
     """
-    global _CACHED_WHITELISTS, _CACHED_KNOWN_SEQUENCES, _CURRENT_CACHED_SAMPLE_ID
+    global _CACHED_WHITELISTS, _CACHED_KNOWN_SEQUENCES, _CURRENT_CACHED_SAMPLE_ID, _CACHED_WHITELIST_PATHS
 
     if sample_id != _CURRENT_CACHED_SAMPLE_ID:
         if _CURRENT_CACHED_SAMPLE_ID is not None:
             logger.info(f"Switching to Sample ID: {sample_id}. Clearing cache.")
         _CACHED_WHITELISTS = None
         _CURRENT_CACHED_SAMPLE_ID = sample_id
+
+    if whitelist_paths is None and _CACHED_WHITELIST_PATHS is not None:
+        _CACHED_WHITELISTS = None
+        _CACHED_WHITELIST_PATHS = None
+    elif whitelist_paths is not None and whitelist_paths != _CACHED_WHITELIST_PATHS:
+        _CACHED_WHITELISTS = None
+        _CACHED_WHITELIST_PATHS = dict(whitelist_paths)
 
     model_segments = []
     if seq_orders_path and model_name:
@@ -282,7 +316,16 @@ def get_or_load_whitelists_and_sequences(
         skip_segments = set(known_seqs.keys()).union(['cDNA', 'NN'])
         target_segments = [s for s in remaining_segments if s not in skip_segments]
 
-        # Priority 2: DataFrame
+        # Priority 2: Explicit whitelist paths (segment:path)
+        explicit_whitelist_paths = whitelist_paths or {}
+        if explicit_whitelist_paths:
+            loaded_from_paths = load_whitelist_paths(explicit_whitelist_paths, target_segments)
+            _CACHED_WHITELISTS.update(loaded_from_paths)
+            remaining_segments = [s for s in remaining_segments if s not in _CACHED_WHITELISTS]
+
+        target_segments = [s for s in remaining_segments if s not in skip_segments]
+
+        # Priority 3: DataFrame
         if whitelist_df is not None:
             for segment in target_segments:
                 if segment in whitelist_df.columns:
@@ -291,7 +334,7 @@ def get_or_load_whitelists_and_sequences(
                     _CACHED_WHITELISTS[segment] = sequences
                     logger.info(f"Loaded {len(_CACHED_WHITELISTS[segment])} sequences for {segment} from whitelist DataFrame")
 
-        # Priority 3: Files
+        # Priority 4: Files
         elif whitelist_base_dir:
             loaded_files = load_file_whitelists(whitelist_base_dir, target_segments)
             for segment in target_segments:
@@ -400,10 +443,12 @@ def process_full_length_reads_in_chunks_and_save(
     )
 
     # Load whitelists and known sequences for edit distance calculation
-    segment_whitelists, known_sequences = get_or_load_whitelists_and_sequences(
-        config.seq_orders_path, config.model_name, config.whitelist_base_dir, whitelist_df,
-        config.metadata_path, config.sample_id
-    )
+    segment_whitelists, known_sequences = {}, {}
+    if config.include_edit_distances:
+        segment_whitelists, known_sequences = get_or_load_whitelists_and_sequences(
+            config.seq_orders_path, config.model_name, config.whitelist_base_dir, whitelist_df,
+            config.metadata_path, config.sample_id, config.whitelist_paths
+        )
 
     # Build DataFrame with all annotations and edit distances
     chunk_df = pd.DataFrame.from_records(
@@ -414,7 +459,11 @@ def process_full_length_reads_in_chunks_and_save(
                 'read': annotated_read['read'],
                 **build_position_cols(annotated_read),
                 **build_sequence_cols(annotated_read, barcodes),
-                **get_all_edit_dist_cols(annotated_read, segment_whitelists, known_sequences, barcodes),
+                **(
+                    get_all_edit_dist_cols(
+                        annotated_read, segment_whitelists, known_sequences, barcodes
+                    ) if config.include_edit_distances else {}
+                ),
                 'base_qualities': base_qualities[i] if config.output_fmt == "fastq" else None,
                 'architecture': annotated_read['architecture'],
                 'reason': annotated_read['reason'],
@@ -476,12 +525,16 @@ def process_full_length_reads_in_chunks_and_save(
         # Identify columns to preserve after demultiplexing
         # bc_n_demultiplex returns a new DataFrame that only includes specific columns
         # We need to preserve edit distances and segment positions (Starts/Ends/Sequences)
-        edit_dist_cols = [col for col in valid_reads_df.columns
-                         if col.endswith('_edit_distance') or col.endswith('_match_orientation')]
+        edit_dist_cols = []
+        if config.include_edit_distances:
+            edit_dist_cols = [col for col in valid_reads_df.columns
+                             if col.endswith('_edit_distance') or col.endswith('_match_orientation')]
 
         # Identify all segment position and sequence columns (for fixed sequences like p7, RP2, etc.)
         segment_cols = [col for col in valid_reads_df.columns
                        if col.endswith('_Starts') or col.endswith('_Ends') or col.endswith('_Sequences')]
+        if not config.include_sequences_in_valid_output:
+            segment_cols = [col for col in segment_cols if not col.endswith('_Sequences')]
 
         # Remove barcode and commonly preserved columns (those already in bc_n_demultiplex output)
         preserved_in_demux = ['cDNA_Starts', 'cDNA_Ends', 'UMI_Starts', 'UMI_Ends',
@@ -493,8 +546,23 @@ def process_full_length_reads_in_chunks_and_save(
 
         segment_cols = [col for col in segment_cols if col not in preserved_in_demux]
 
+        # Add essential columns that must be preserved (read sequence, metadata, etc.)
+        essential_cols = []
+        if 'read' in valid_reads_df.columns and config.include_sequences_in_valid_output:
+            essential_cols.append('read')
+        if 'read_length' in valid_reads_df.columns:
+            essential_cols.append('read_length')
+        if 'base_qualities' in valid_reads_df.columns and config.include_sequences_in_valid_output:
+            essential_cols.append('base_qualities')
+        if 'architecture' in valid_reads_df.columns:
+            essential_cols.append('architecture')
+        if 'reason' in valid_reads_df.columns:
+            essential_cols.append('reason')
+        if 'orientation' in valid_reads_df.columns:
+            essential_cols.append('orientation')
+
         # Combine all columns to preserve
-        cols_to_preserve = edit_dist_cols + segment_cols
+        cols_to_preserve = edit_dist_cols + segment_cols + essential_cols
 
         corrected_df, match_type_counts, cell_id_counts = bc_n_demultiplex(
             valid_reads_df, strand,
@@ -505,13 +573,21 @@ def process_full_length_reads_in_chunks_and_save(
             ambiguous_fasta_lock, config.n_jobs
         )
 
-        # Merge preserved columns back into corrected_df
+        # Filter out columns that already exist in corrected_df to avoid duplicates
+        # bc_n_demultiplex already returns columns like read_length, architecture, reason, orientation
         if cols_to_preserve:
-            # Merge on ReadName to preserve edit distance and segment position columns
-            preserved_df = valid_reads_df[['ReadName'] + cols_to_preserve]
-            corrected_df = corrected_df.merge(preserved_df, on='ReadName', how='left')
-            logger.info(f"Preserved {len(cols_to_preserve)} columns in valid reads output "
-                       f"({len(edit_dist_cols)} edit distance, {len(segment_cols)} segment position)")
+            existing_cols = set(corrected_df.columns)
+            cols_to_preserve = [col for col in cols_to_preserve if col not in existing_cols]
+
+            # Only merge if there are actually columns to preserve
+            if cols_to_preserve:
+                # Merge on ReadName to preserve edit distance, segment position, and essential columns
+                preserved_df = valid_reads_df[['ReadName'] + cols_to_preserve]
+                corrected_df = corrected_df.merge(preserved_df, on='ReadName', how='left')
+                logger.info(f"Preserved {len(cols_to_preserve)} columns in valid reads output "
+                           f"(filtered to exclude columns already in bc_n_demultiplex output)")
+            else:
+                logger.info("No additional columns to preserve - all needed columns already in bc_n_demultiplex output")
 
         # Compute barcode stats
         for barcode in list(column_mapping.keys()):
@@ -562,7 +638,10 @@ def post_process_reads(reads, read_names, strand, output_fmt,
                        cell_id_counter, demuxed_fasta, demuxed_fasta_lock,
                        ambiguous_fasta, ambiguous_fasta_lock, njobs,
                        seq_orders_path=None, model_name=None, whitelist_base_dir=None,
-                       metadata_path=None, sample_id=None):
+                       metadata_path=None, sample_id=None,
+                       include_edit_distances=False,
+                       include_sequences_in_valid_output=False,
+                       whitelist_paths=None):
     """Post-process reads wrapper that constructs config and calls main processor."""
 
     # Construct configuration object
@@ -576,8 +655,11 @@ def post_process_reads(reads, read_names, strand, output_fmt,
         seq_orders_path=seq_orders_path,
         model_name=model_name,
         whitelist_base_dir=whitelist_base_dir,
+        whitelist_paths=whitelist_paths,
         metadata_path=metadata_path,
-        sample_id=sample_id
+        sample_id=sample_id,
+        include_edit_distances=include_edit_distances,
+        include_sequences_in_valid_output=include_sequences_in_valid_output
     )
 
     results = process_full_length_reads_in_chunks_and_save(

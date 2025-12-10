@@ -32,6 +32,29 @@ def version_callback(value: bool) -> None:
         raise typer.Exit()
 
 
+def parse_whitelist_arg(arg: str | None) -> dict[str, str]:
+    """
+    Parse comma-separated segment:path pairs into a dictionary.
+
+    Example: "i7:/path/i7.txt,CBC:/path/cbc.txt" -> {"i7": "...", "CBC": "..."}
+    """
+    if not arg:
+        return {}
+
+    mapping = {}
+    entries = [entry.strip() for entry in arg.split(",") if entry.strip()]
+    for entry in entries:
+        if ":" not in entry:
+            raise ValueError(f"Invalid whitelist entry '{entry}'. Expected format <segment>:<path>")
+        segment, path = entry.split(":", 1)
+        segment = segment.strip()
+        path = path.strip()
+        if not segment or not path:
+            raise ValueError(f"Invalid whitelist entry '{entry}'. Segment and path must be non-empty")
+        mapping[segment] = path
+    return mapping
+
+
 @app.callback(invoke_without_command=True)
 def main(
     ctx: typer.Context,
@@ -274,6 +297,22 @@ def annotate_reads(
         None,
         help="Directory containing whitelist files (cbc.txt, udi_i5.txt, udi_i7.txt) for edit distance calculations"
     ),
+    whitelists: str = typer.Option(
+        None,
+        help="Comma-separated whitelist overrides in the form <segment>:<file>. Only segments present in seq_orders are loaded."
+    ),
+    include_edit_distances: bool = typer.Option(
+        False,
+        "--include-edit-dists",
+        is_flag=True,
+        help="Add edit distance and match orientation columns to valid reads output"
+    ),
+    include_sequences: bool = typer.Option(
+        False,
+        "--include-valid-seqs",
+        is_flag=True,
+        help="Add raw read and segment sequence columns to valid reads output"
+    ),
     chunk_size: int = typer.Option(
         100000, help=(
         "Base chunk size, dynamically adjusts based on read length"
@@ -318,6 +357,8 @@ def annotate_reads(
         output_fmt: "fasta" or "fastq" for demultiplexed outputs.
         model_name: Base model label (without `_w_CRF`).
         model_type: "REG", "CRF", or "HYB" (REG pass then CRF on invalid).
+        whitelist_base_dir: Directory of whitelist files used for edit-distance calculations.
+        whitelists: Comma-separated segment:path overrides for edit-distance whitelists (only segments in seq_orders are used).
         chunk_size: Row group size for final Parquet conversions.
         gpu_mem: Optional GPU memory budget string (e.g., "12" or "8,16").
         target_tokens: Token budget per replica to guide batching.
@@ -327,6 +368,8 @@ def annotate_reads(
         bc_lv_threshold: Levenshtein threshold for barcode correction.
         threads: CPU workers for barcode/demux post-processing.
         max_queue_size: Max in-flight Parquet chunks for worker queueing.
+        include_edit_distances: Add edit distance/match orientation columns to valid outputs.
+        include_sequences: Add read and segment sequence columns to valid outputs.
 
     Outputs:
         - `<output_dir>/annotations_valid.parquet` and `_invalid.parquet`
@@ -341,12 +384,14 @@ def annotate_reads(
         RuntimeError: Propagated exceptions from worker processes.
     """
     from wrappers.annotate_reads_wrap import annotate_reads_wrap
+    whitelist_paths = parse_whitelist_arg(whitelists)
     annotate_reads_wrap(output_dir, whitelist_file, output_fmt,
                         model_name, model_type, seq_order_file,
                         chunk_size, gpu_mem, target_tokens,
                         vram_headroom, min_batch_size, max_batch_size,
                         bc_lv_threshold, threads, max_queue_size,
-                        whitelist_base_dir)
+                        whitelist_base_dir, include_edit_distances,
+                        include_sequences, whitelist_paths)
 
 # ======================================
 # align inserts to the reference genome

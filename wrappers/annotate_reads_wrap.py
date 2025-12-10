@@ -112,7 +112,10 @@ def annotate_reads_wrap(output_dir, whitelist_file, output_fmt,
                         chunk_size, gpu_mem, target_tokens,
                         vram_headroom, min_batch_size, max_batch_size,
                         bc_lv_threshold, threads, max_queue_size,
-                        whitelist_base_dir=None):
+                        whitelist_base_dir=None,
+                        include_edit_distances=False,
+                        include_sequences_in_valid_output=False,
+                        whitelist_paths=None):
     (os, gc, sys, resource, pickle, mp, Manager,
      defaultdict, psutil, pl, FileLock, pd,
      model_predictions, post_process_reads,
@@ -271,7 +274,10 @@ def annotate_reads_wrap(output_dir, whitelist_file, output_fmt,
                     ambiguous_fasta_lock, threads,
                     seq_orders_path=seq_order_file,
                     model_name=model_name,
-                    whitelist_base_dir=whitelist_base_dir
+                    whitelist_base_dir=whitelist_base_dir,
+                    include_edit_distances=include_edit_distances,
+                    include_sequences_in_valid_output=include_sequences_in_valid_output,
+                    whitelist_paths=whitelist_paths
                 )
 
                 if result:
