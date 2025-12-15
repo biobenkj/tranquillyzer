@@ -249,6 +249,17 @@ def process_row(
             except (KeyError, ValueError, TypeError):
                 continue
 
+        # Add UMI qualities if present
+        try:
+            umi_start = int(float(str(row.get("UMI_Starts", "")).split(",")[0].strip()))
+            umi_end = int(float(str(row.get("UMI_Ends", "")).split(",")[0].strip()))
+            if base_q and umi_end > umi_start:
+                umi_slice = base_q[umi_start:umi_end]
+                if umi_slice:
+                    qual_tokens.append(f"UMI:{umi_slice}")
+        except (ValueError, TypeError):
+            pass
+
         if qual_tokens:
             barcode_qual_suffix = f"|BQ:{';'.join(qual_tokens)}"
 

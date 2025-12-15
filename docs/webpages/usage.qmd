@@ -151,7 +151,8 @@ Currently available trained models can be downloaded from [this  Dropbox link](h
 and should be placed in the `models/` directory within the cloned Tranquillyzer repository.
 
 If `--include-barcode-quals` is set with FASTQ output, headers gain a `|BQ:` tag containing `segment:quality` pairs
-for the barcode segments listed in the fourth column of `seq_orders.tsv` (e.g., `|BQ:i7:<quals>;i5:<quals>;CBC:<quals>`).
+for the barcode segments listed in the fourth column of `seq_orders.tsv`, plus UMI qualities when present (e.g.,
+`|BQ:i7:<quals>;i5:<quals>;CBC:<quals>;UMI:<quals>`).
 
 ## Usage
 

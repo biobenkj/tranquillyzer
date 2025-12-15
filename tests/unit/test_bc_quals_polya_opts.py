@@ -69,7 +69,7 @@ def test_process_row_appends_polya_and_bq():
     header, seq_out, qual_out = cell_reads[0]
 
     assert header.startswith("@r1_AAAA-GGGG-CCCC_")
-    assert "|BQ:i7:ABCD;i5:EFGH;CBC:IJKL" in header
+    assert "|BQ:i7:ABCD;i5:EFGH;CBC:IJKL;UMI:ABCD" in header
     assert seq_out == "AAAAGGGGCCCCAAAATTTT"  # cDNA + polyA tail
     assert qual_out == "ABCDEFGHIJKLMNOPQRST"
 
