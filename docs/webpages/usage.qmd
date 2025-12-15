@@ -128,9 +128,6 @@ reads to their respective cells (i.e., demultiplexes) in a single step. It produ
   - `OUTPUT_DIR/plots/demux_plots.pdf`
   - `OUTPUT_DIR/plots/full_read_annots.pdf`
 
-If `--include-barcode-quals` is set with FASTQ output, headers gain a `|BQ:` tag containing `segment:quality` pairs
-for the barcode segments listed in the fourth column of `seq_orders.tsv` (e.g., `|BQ:i7:<quals>;i5:<quals>;CBC:<quals>`).
-
 **Note:** Before running the `annotate-reads` subcommand, ensure you select the appropriate model and model type for
 your dataset. Tranquillyzer supports multiple model types:
 
@@ -152,6 +149,9 @@ We recommend verifying which model versions are present (via `availablemodels`) 
 
 Currently available trained models can be downloaded from [this  Dropbox link](https://www.dropbox.com/scl/fo/3lms8n97bnufzqa4ausv9/AGkO3EVrL1ZgctwEwTK1mEA?rlkey=47m69a6smwsisdznbwu3jvjpu&st=253al7s3&dl=0)
 and should be placed in the `models/` directory within the cloned Tranquillyzer repository.
+
+If `--include-barcode-quals` is set with FASTQ output, headers gain a `|BQ:` tag containing `segment:quality` pairs
+for the barcode segments listed in the fourth column of `seq_orders.tsv` (e.g., `|BQ:i7:<quals>;i5:<quals>;CBC:<quals>`).
 
 ## Usage
 
