@@ -1,6 +1,15 @@
 from tensorflow.keras.layers import (
-    Input, Embedding, Conv1D, BatchNormalization, Dropout,
-    Bidirectional, LSTM, Dense, TimeDistributed, Add, MultiHeadAttention
+    Input,
+    Embedding,
+    Conv1D,
+    BatchNormalization,
+    Dropout,
+    Bidirectional,
+    LSTM,
+    Dense,
+    TimeDistributed,
+    Add,
+    MultiHeadAttention,
 )
 from tensorflow.keras.losses import CategoricalCrossentropy
 from tensorflow.keras.optimizers.legacy import Adam
@@ -16,15 +25,20 @@ import tensorflow_addons as tfa
 from tf2crf import CRF, ModelWithCRFLoss
 
 import os, tensorflow as tf
-os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(map(str, range(tf.config.list_physical_devices('GPU').__len__())))
+
+os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(
+    map(str, range(tf.config.list_physical_devices("GPU").__len__()))
+)
 tf.config.experimental.enable_tensor_float_32_execution(False)
 
 # Mapping nucleotides to integers
-nucleotide_to_id = {'A': 1, 'C': 2, 'G': 3, 'T': 4, 'N': 5}
+nucleotide_to_id = {"A": 1, "C": 2, "G": 3, "T": 4, "N": 5}
+
 
 def encode_sequence(sequence):
     """Convert nucleotide sequence to list of integers."""
     return [nucleotide_to_id[base] for base in sequence]
+
 
 class DynamicPaddingDataGenerator(Sequence):
     def __init__(self, X, Y, batch_size, label_binarizer):
@@ -36,12 +50,13 @@ class DynamicPaddingDataGenerator(Sequence):
         return int(np.ceil(len(self.X) / self.batch_size))
 
     def __getitem__(self, idx):
-        batch_X = self.X[idx * self.batch_size:(idx + 1) * self.batch_size]
-        batch_Y = self.Y[idx * self.batch_size:(idx + 1) * self.batch_size]
+        batch_X = self.X[idx * self.batch_size : (idx + 1) * self.batch_size]
+        batch_Y = self.Y[idx * self.batch_size : (idx + 1) * self.batch_size]
         max_len = max(len(x) for x in batch_X)
         X_padded = pad_sequences(batch_X, maxlen=max_len, padding="post", value=0)
         Y_padded = pad_sequences(batch_Y, maxlen=max_len, padding="post", value=0)
         return X_padded, Y_padded
+
 
 def ont_read_annotator(
     vocab_size,
@@ -57,7 +72,7 @@ def ont_read_annotator(
     attention_heads=0,
     dropout_rate=0.35,
     regularization=0.01,
-    learning_rate=0.01
+    learning_rate=0.01,
 ):
     inputs = Input(shape=(None,), dtype="int32", name="input_tokens")
     x = Embedding(vocab_size, embedding_dim, name="embedding")(inputs)
@@ -68,7 +83,7 @@ def ont_read_annotator(
             activation="relu",
             padding="same",
             kernel_regularizer=l2(regularization),
-            name=f"conv1d_{i}"
+            name=f"conv1d_{i}",
         )(x)
         x = BatchNormalization(name=f"batchnorm_{i}")(x)
         x = Dropout(dropout_rate, name=f"dropout_conv_{i}")(x)
@@ -78,26 +93,29 @@ def ont_read_annotator(
             return_sequences=True,
             kernel_regularizer=l2(regularization),
             recurrent_regularizer=l2(regularization),
-            name=f"lstm_{i}"
+            name=f"lstm_{i}",
         )
-        x = Bidirectional(lstm_layer, name=f"bilstm_{i}")(x) if bidirectional else lstm_layer(x)
+        x = (
+            Bidirectional(lstm_layer, name=f"bilstm_{i}")(x)
+            if bidirectional
+            else lstm_layer(x)
+        )
         x = Dropout(dropout_rate, name=f"dropout_lstm_{i}")(x)
     if attention_heads > 0:
         attention_out = MultiHeadAttention(
             num_heads=attention_heads,
             key_dim=lstm_units,
             dropout=dropout_rate,
-            name="multihead_attention"
+            name="multihead_attention",
         )(x, x)
         x = Add(name="residual_attention")([x, attention_out])
         x = Dropout(dropout_rate, name="dropout_attention")(x)
     logits = TimeDistributed(
-        Dense(num_labels, kernel_regularizer=l2(regularization)),
-        name="time_dense"
+        Dense(num_labels, kernel_regularizer=l2(regularization)), name="time_dense"
     )(x)
     optimizer = Adam(learning_rate=learning_rate, clipnorm=1.0)
     if crf_layer:
-        crf = CRF(units=num_labels, dtype='float32')
+        crf = CRF(units=num_labels, dtype="float32")
         output = crf(logits)
         base_model = Model(inputs, output)
         model = ModelWithCRFLoss(base_model, sparse_target=False)
@@ -105,7 +123,5 @@ def ont_read_annotator(
     else:
         model = Model(inputs, logits)
         loss_fn = CategoricalCrossentropy(from_logits=True)
-        model.compile(optimizer=optimizer,
-                      loss=loss_fn,
-                      metrics=["accuracy"])
+        model.compile(optimizer=optimizer, loss=loss_fn, metrics=["accuracy"])
     return model

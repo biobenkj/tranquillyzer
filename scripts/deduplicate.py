@@ -8,8 +8,7 @@ import pysam
 from rapidfuzz.distance import Hamming, Levenshtein
 
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
@@ -109,7 +108,10 @@ class Deduper:
       - Evicts old bins as we stream forward to keep memory flat.
     Decision is made **only on primary alignments**.
     """
-    def __init__(self, umi_ld: int, per_cell: bool, stranded: bool, position_tolerance: int = 10):
+
+    def __init__(
+        self, umi_ld: int, per_cell: bool, stranded: bool, position_tolerance: int = 10
+    ):
         self.umi_ld = umi_ld
         self.per_cell = per_cell
         self.stranded = stranded
@@ -117,7 +119,9 @@ class Deduper:
 
         # key -> start_bin -> end_bin -> {'bktree': BKTree, 'kept_umis': set()}
         self.state = defaultdict(lambda: defaultdict(lambda: defaultdict(dict)))
-        self.active_start_bins = defaultdict(deque)  # key -> deque of start_bins in order
+        self.active_start_bins = defaultdict(
+            deque
+        )  # key -> deque of start_bins in order
 
         # stats (primary decisions only)
         self.unique_count = 0
@@ -134,6 +138,7 @@ class Deduper:
     def _mk_bktree(self):
         def df(a, b, cutoff=self.umi_ld):
             return _umi_dist(a, b, cutoff)
+
         return BKTree(df)
 
     def evict_before(self, chrom_key, current_start_bin: int):
@@ -179,15 +184,24 @@ class Deduper:
 
 
 # Per-contig worker
-def process_region(sorted_bam: str, temp_bam_path: str, region: str,
-                   umi_ld: int, per_cell: bool, stranded: bool, threads_bgzf: int):
+def process_region(
+    sorted_bam: str,
+    temp_bam_path: str,
+    region: str,
+    umi_ld: int,
+    per_cell: bool,
+    stranded: bool,
+    threads_bgzf: int,
+):
     """
     Process a single contig/region:
       - Make duplicate decisions **on primary alignments only**.
       - Propagate decision to secondary/supp if we've already seen the primary in this worker.
       - Write output BAM (coordinate-sorted within this contig).
     """
-    deduper = Deduper(umi_ld=umi_ld, per_cell=per_cell, stranded=stranded, position_tolerance=10)
+    deduper = Deduper(
+        umi_ld=umi_ld, per_cell=per_cell, stranded=stranded, position_tolerance=10
+    )
 
     # qname -> bool (True if duplicate) for decisions made on primaries within this region
     qname_dup = {}
@@ -198,7 +212,9 @@ def process_region(sorted_bam: str, temp_bam_path: str, region: str,
         hdr["HD"]["SO"] = "coordinate"
         out_header = pysam.AlignmentHeader.from_dict(hdr)
 
-        with pysam.AlignmentFile(temp_bam_path, "wb", header=out_header, threads=threads_bgzf) as bam_out:
+        with pysam.AlignmentFile(
+            temp_bam_path, "wb", header=out_header, threads=threads_bgzf
+        ) as bam_out:
             for read in bam_in.fetch(region):
                 if read.is_unmapped:
                     continue
@@ -206,7 +222,9 @@ def process_region(sorted_bam: str, temp_bam_path: str, region: str,
                 cb, umi, clean_name = extract_cb_umi(read.query_name)
                 if not cb or not umi:
                     # If CB/UMI missing, write through unchanged
-                    aln = read.to_string()  # not available; must construct new AlignedSegment
+                    aln = (
+                        read.to_string()
+                    )  # not available; must construct new AlignedSegment
                     # Construct minimal pass-through without DT if you prefer; but since we rely on primaries only,
                     # we will skip here (no CB/UMI -> cannot dedup); write original with no DT/dup change.
                     aln_seg = pysam.AlignedSegment(bam_out.header)
@@ -241,10 +259,12 @@ def process_region(sorted_bam: str, temp_bam_path: str, region: str,
                 is_primary = not (read.is_secondary or read.is_supplementary)
                 if is_primary:
                     dup_str = deduper.decide_primary(rd)  # "Yes" or "No"
-                    qname_dup[clean_name] = (dup_str == "Yes")
+                    qname_dup[clean_name] = dup_str == "Yes"
                 else:
                     # For secondary/supplementary: reuse decision if known; otherwise leave unchanged
-                    dup_str = "Yes" if qname_dup.get(clean_name, False) else None  # None => no DT tag written
+                    dup_str = (
+                        "Yes" if qname_dup.get(clean_name, False) else None
+                    )  # None => no DT tag written
 
                 # Build output alignment
                 aln = pysam.AlignedSegment(bam_out.header)
@@ -263,14 +283,18 @@ def process_region(sorted_bam: str, temp_bam_path: str, region: str,
                 aln.cigarstring = rd.cigar
                 aln.query_sequence = rd.seq
                 aln.query_qualities = (
-                    pysam.qualitystring_to_array(rd.qual) if isinstance(rd.qual, str) else rd.qual
+                    pysam.qualitystring_to_array(rd.qual)
+                    if isinstance(rd.qual, str)
+                    else rd.qual
                 )
 
                 # Tags
                 aln.set_tag("CB", rd.cb, value_type="Z")
                 aln.set_tag("UB", rd.umi, value_type="Z")
                 if dup_str is not None:
-                    aln.set_tag("DT", dup_str, value_type="Z")  # only when we have a decision
+                    aln.set_tag(
+                        "DT", dup_str, value_type="Z"
+                    )  # only when we have a decision
 
                 bam_out.write(aln)
 
@@ -279,14 +303,18 @@ def process_region(sorted_bam: str, temp_bam_path: str, region: str,
 
 
 # Merge temp BAMs in @SQ order
-def merge_in_sq_order(output_bam: str, temp_paths_in_order, template_bam: str, threads_bgzf: int):
+def merge_in_sq_order(
+    output_bam: str, temp_paths_in_order, template_bam: str, threads_bgzf: int
+):
     with pysam.AlignmentFile(template_bam, "rb") as template:
         hdr = template.header.to_dict()
         hdr.setdefault("HD", {})
         hdr["HD"]["SO"] = "coordinate"
         out_header = pysam.AlignmentHeader.from_dict(hdr)
 
-        with pysam.AlignmentFile(output_bam, "wb", header=out_header, threads=threads_bgzf) as merged_out:
+        with pysam.AlignmentFile(
+            output_bam, "wb", header=out_header, threads=threads_bgzf
+        ) as merged_out:
             for p in temp_paths_in_order:  # same order as @SQ
                 with pysam.AlignmentFile(p, "rb") as t:
                     for r in t:
@@ -294,9 +322,9 @@ def merge_in_sq_order(output_bam: str, temp_paths_in_order, template_bam: str, t
 
 
 # Per-read (QNAME) stats on primaries only
-def compute_final_stats_per_read(bam_path: str, stats_tsv: str,
-                                 threads: int = 4,
-                                 primary_only: bool = True):
+def compute_final_stats_per_read(
+    bam_path: str, stats_tsv: str, threads: int = 4, primary_only: bool = True
+):
     """
     Count each read name once:
       - If ANY primary alignment for that QNAME is duplicate -> count as Duplicate.
@@ -322,11 +350,15 @@ def compute_final_stats_per_read(bam_path: str, stats_tsv: str,
         fh.write(f"Duplicate Reads\t{dups}\n")
 
 
-def deduplication_parallel(sorted_bam: str, output_bam: str,
-                           umi_ld: int = 1, per_cell: bool = True,
-                           threads: int = max(1, mp.cpu_count() // 2),
-                           stranded: bool = False,
-                           bgzf_threads_per_writer: int = 4):
+def deduplication_parallel(
+    sorted_bam: str,
+    output_bam: str,
+    umi_ld: int = 1,
+    per_cell: bool = True,
+    threads: int = max(1, mp.cpu_count() // 2),
+    stranded: bool = False,
+    bgzf_threads_per_writer: int = 4,
+):
     """
     Parallel dedup per contig with per-read semantics:
       * Decide duplicates on **primary** alignments only.
@@ -349,8 +381,15 @@ def deduplication_parallel(sorted_bam: str, output_bam: str,
             work.append(
                 pool.apply_async(
                     process_region,
-                    (sorted_bam, temp_path, region, umi_ld,
-                    per_cell, stranded, bgzf_threads_per_writer),
+                    (
+                        sorted_bam,
+                        temp_path,
+                        region,
+                        umi_ld,
+                        per_cell,
+                        stranded,
+                        bgzf_threads_per_writer,
+                    ),
                 )
             )
         for w in work:
@@ -359,8 +398,7 @@ def deduplication_parallel(sorted_bam: str, output_bam: str,
 
     # Merge in @SQ order
     ordered_paths = [temp_paths[r] for r in regions if r in temp_paths]
-    merge_in_sq_order(output_bam, ordered_paths,
-                      sorted_bam, bgzf_threads_per_writer)
+    merge_in_sq_order(output_bam, ordered_paths, sorted_bam, bgzf_threads_per_writer)
 
     # Cleanup temps
     for p in ordered_paths:
@@ -372,7 +410,7 @@ def deduplication_parallel(sorted_bam: str, output_bam: str,
     # Stats: per read (QNAME), primaries only
     logger.info("Duplicate marking complete, computing per-read stats")
     stats_file = output_bam.replace(".bam", "_stats.tsv")
-    compute_final_stats_per_read(output_bam, stats_file,
-                                 threads=threads,
-                                 primary_only=True)
+    compute_final_stats_per_read(
+        output_bam, stats_file, threads=threads, primary_only=True
+    )
     logger.info("Computed per-read stats, indexing final BAM")

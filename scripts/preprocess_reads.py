@@ -10,8 +10,7 @@ from concurrent.futures import ProcessPoolExecutor
 
 from filelock import FileLock  # Import the FileLock library
 
-logging.basicConfig(level=logging.INFO,
-                    format='%(asctime)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 
@@ -29,12 +28,19 @@ def determine_bin(length, bin_size=500):
     return f"{bin_start}_{bin_end}bp"
 
 
-def extract_and_bin_reads(file_path, batch_size,
-                          output_dir, output_base_qual):
+def extract_and_bin_reads(file_path, batch_size, output_dir, output_base_qual):
     reads_by_bin = {}
-    file_format = 'fasta' if file_path.endswith(('.fa', '.fasta', '.fa.gz', '.fasta.gz')) else 'fastq'
+    file_format = (
+        "fasta"
+        if file_path.endswith((".fa", ".fasta", ".fa.gz", ".fasta.gz"))
+        else "fastq"
+    )
 
-    with (gzip.open(file_path, 'rt') if file_path.endswith('.gz') else open(file_path, 'r')) as handle:
+    with (
+        gzip.open(file_path, "rt")
+        if file_path.endswith(".gz")
+        else open(file_path, "r")
+    ) as handle:
         for record in SeqIO.parse(handle, file_format):
             read_length = len(record.seq)
             bin_name = determine_bin(read_length)
@@ -42,66 +48,88 @@ def extract_and_bin_reads(file_path, batch_size,
             # Ensure that the bin is initialized with all required keys
             if output_base_qual:
                 if bin_name not in reads_by_bin:
-                    reads_by_bin[bin_name] = {'read_names': [], 'reads': [],
-                                              'read_lengths': [], 'base_quals': []}
-                reads_by_bin[bin_name]['base_quals'].append(record.format("fastq").splitlines()[3])
+                    reads_by_bin[bin_name] = {
+                        "read_names": [],
+                        "reads": [],
+                        "read_lengths": [],
+                        "base_quals": [],
+                    }
+                reads_by_bin[bin_name]["base_quals"].append(
+                    record.format("fastq").splitlines()[3]
+                )
 
             else:
                 if bin_name not in reads_by_bin:
-                    reads_by_bin[bin_name] = {'read_names': [], 'reads': [],
-                                              'read_lengths': []}
+                    reads_by_bin[bin_name] = {
+                        "read_names": [],
+                        "reads": [],
+                        "read_lengths": [],
+                    }
 
-            reads_by_bin[bin_name]['read_names'].append(record.id)
-            reads_by_bin[bin_name]['reads'].append(str(record.seq))
-            reads_by_bin[bin_name]['read_lengths'].append(read_length)
+            reads_by_bin[bin_name]["read_names"].append(record.id)
+            reads_by_bin[bin_name]["reads"].append(str(record.seq))
+            reads_by_bin[bin_name]["read_lengths"].append(read_length)
 
             # Once a bin reaches the batch size, save it and reset
-            if len(reads_by_bin[bin_name]['reads']) >= batch_size:
-                dump_bin_data(output_dir, output_base_qual, bin_name,
-                              reads_by_bin[bin_name])
+            if len(reads_by_bin[bin_name]["reads"]) >= batch_size:
+                dump_bin_data(
+                    output_dir, output_base_qual, bin_name, reads_by_bin[bin_name]
+                )
                 if output_base_qual:
-                    reads_by_bin[bin_name] = {'read_names': [], 'reads': [],
-                                              'read_lengths': [], 'base_quals': []}
+                    reads_by_bin[bin_name] = {
+                        "read_names": [],
+                        "reads": [],
+                        "read_lengths": [],
+                        "base_quals": [],
+                    }
                 else:
-                    reads_by_bin[bin_name] = {'read_names': [],
-                                              'reads': [],
-                                              'read_lengths': []}
+                    reads_by_bin[bin_name] = {
+                        "read_names": [],
+                        "reads": [],
+                        "read_lengths": [],
+                    }
 
         # Dump any remaining data after file is fully read
         for bin_name, data in reads_by_bin.items():
-            if data['reads']:
+            if data["reads"]:
                 dump_bin_data(output_dir, output_base_qual, bin_name, data)
 
 
 def dump_bin_data(output_dir, output_base_qual, bin_name, data):
     os.makedirs(output_dir, exist_ok=True)
     tsv_filename = os.path.join(output_dir, f"{bin_name}.tsv")
-    lock_filename = tsv_filename + '.lock'  # Create a lock file for the TSV
+    lock_filename = tsv_filename + ".lock"  # Create a lock file for the TSV
 
-    if len(data['reads']) == 0:
+    if len(data["reads"]) == 0:
         return
 
     if output_base_qual:
-        df = pl.DataFrame({
-            "ReadName": data['read_names'],
-            "read": data['reads'],
-            "read_length": data['read_lengths'],
-            "base_qualities": data['base_quals']
-        })
+        df = pl.DataFrame(
+            {
+                "ReadName": data["read_names"],
+                "read": data["reads"],
+                "read_length": data["read_lengths"],
+                "base_qualities": data["base_quals"],
+            }
+        )
     else:
-        df = pl.DataFrame({
-            "ReadName": data['read_names'],
-            "read": data['reads'],
-            "read_length": data['read_lengths']
-        })
+        df = pl.DataFrame(
+            {
+                "ReadName": data["read_names"],
+                "read": data["reads"],
+                "read_length": data["read_lengths"],
+            }
+        )
 
     try:
         # Use a file lock to prevent concurrent writes
         # Ensure only one process writes to this file at a time
         with FileLock(lock_filename):
-            write_header = not os.path.exists(tsv_filename) or os.path.getsize(tsv_filename) == 0
+            write_header = (
+                not os.path.exists(tsv_filename) or os.path.getsize(tsv_filename) == 0
+            )
 
-            with open(tsv_filename, 'a') as f:
+            with open(tsv_filename, "a") as f:
                 if write_header:
                     f.write("\t".join(df.columns) + "\n")
                 for row in df.to_numpy():
@@ -111,23 +139,33 @@ def dump_bin_data(output_dir, output_base_qual, bin_name, data):
         logger.error(f"Error writing {tsv_filename}: {e}")
 
 
-def parallel_preprocess_data(file_list, output_dir, batch_size,
-                             output_base_qual, num_workers=4):
+def parallel_preprocess_data(
+    file_list, output_dir, batch_size, output_base_qual, num_workers=4
+):
     total_files = len(file_list)
 
     if total_files < num_workers:
         num_workers = total_files
-        logger.info(f"Adjusting number of workers to {num_workers} since there are only {total_files} files.")
+        logger.info(
+            f"Adjusting number of workers to {num_workers} since there are only {total_files} files."
+        )
 
     start_time = time.time()
 
     with ProcessPoolExecutor(max_workers=num_workers) as executor:
         for file_path in file_list:
-            executor.submit(extract_and_bin_reads, file_path,
-                            batch_size, output_dir, output_base_qual)
+            executor.submit(
+                extract_and_bin_reads,
+                file_path,
+                batch_size,
+                output_dir,
+                output_base_qual,
+            )
 
     end_time = time.time()
-    logger.info(f"Processed {total_files} files in {end_time - start_time:.2f} seconds.")
+    logger.info(
+        f"Processed {total_files} files in {end_time - start_time:.2f} seconds."
+    )
 
     os.system("rm " + output_dir + "/*.lock")
     convert_tsv_to_parquet(output_dir, row_group_size=1000000)
@@ -156,32 +194,40 @@ def convert_tsv_to_parquet(tsv_dir, row_group_size=1000000):
                 dtypes["base_qualities"] = pl.Utf8
 
             # read lazily with safe CSV options ---
-            df = pl.scan_csv(tsv_file, separator="\t",
-                             has_header=True, quote_char=None,  # do not treat quotes specially
-                             encoding="utf8-lossy",  # tolerate odd bytes
-                             dtypes=dtypes,  # force schema
-                             infer_schema_length=0)  # don't re-infer
+            df = pl.scan_csv(
+                tsv_file,
+                separator="\t",
+                has_header=True,
+                quote_char=None,  # do not treat quotes specially
+                encoding="utf8-lossy",  # tolerate odd bytes
+                dtypes=dtypes,  # force schema
+                infer_schema_length=0,
+            )  # don't re-infer
 
             parquet_file = os.path.join(tsv_dir, f"{bin_name}.parquet")
 
             logger.info(f"Converting {tsv_file}")
-            df.sink_parquet(parquet_file,
-                            compression="snappy",
-                            row_group_size=row_group_size)
+            df.sink_parquet(
+                parquet_file, compression="snappy", row_group_size=row_group_size
+            )
             logger.info(f"Converted {tsv_file} to {parquet_file}")
 
             # Build the read index efficiently (only pull ReadName)
             names = (
-                pl.scan_csv(tsv_file, separator="\t",
-                            has_header=True, quote_char=None,
-                            encoding="utf8-lossy",
-                            dtypes={"ReadName": pl.Utf8},
-                            infer_schema_length=0)
-                            .select("ReadName")
-                            .collect()
-                            .get_column("ReadName")
-                            .to_list()
-                    )
+                pl.scan_csv(
+                    tsv_file,
+                    separator="\t",
+                    has_header=True,
+                    quote_char=None,
+                    encoding="utf8-lossy",
+                    dtypes={"ReadName": pl.Utf8},
+                    infer_schema_length=0,
+                )
+                .select("ReadName")
+                .collect()
+                .get_column("ReadName")
+                .to_list()
+            )
             for rn in names:
                 read_index[rn] = parquet_file
 
@@ -202,8 +248,16 @@ def convert_tsv_to_parquet(tsv_dir, row_group_size=1000000):
 
 
 def find_sequence_files(directory):
-    extensions = ['*.fa', '*.fasta', '*.fa.gz', '*.fasta.gz',
-                  '*.fq', '*.fastq', '*.fq.gz', '*.fastq.gz']
+    extensions = [
+        "*.fa",
+        "*.fasta",
+        "*.fa.gz",
+        "*.fasta.gz",
+        "*.fq",
+        "*.fastq",
+        "*.fq.gz",
+        "*.fastq.gz",
+    ]
     file_list = []
     for ext in extensions:
         file_list.extend(glob.glob(os.path.join(directory, ext)))

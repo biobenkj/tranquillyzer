@@ -15,26 +15,26 @@ from tensorflow.keras.models import load_model
 from tensorflow.keras import backend as K
 
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
 # Create a NumPy lookup array (256 elements to handle all ASCII characters)
 NUCLEOTIDE_TO_ID = np.zeros(256, dtype=np.int8)
-NUCLEOTIDE_TO_ID[ord('A')] = 1
-NUCLEOTIDE_TO_ID[ord('C')] = 2
-NUCLEOTIDE_TO_ID[ord('G')] = 3
-NUCLEOTIDE_TO_ID[ord('T')] = 4
-NUCLEOTIDE_TO_ID[ord('N')] = 5  # Default encoding for unknown nucleotides
+NUCLEOTIDE_TO_ID[ord("A")] = 1
+NUCLEOTIDE_TO_ID[ord("C")] = 2
+NUCLEOTIDE_TO_ID[ord("G")] = 3
+NUCLEOTIDE_TO_ID[ord("T")] = 4
+NUCLEOTIDE_TO_ID[ord("N")] = 5  # Default encoding for unknown nucleotides
 
 # Enable memory growth to avoid pre-allocating all GPU memory
-gpus = tf.config.experimental.list_physical_devices('GPU')
+gpus = tf.config.experimental.list_physical_devices("GPU")
 if len(gpus) > 0:
     for gpu in gpus:
         tf.config.experimental.set_memory_growth(gpu, True)
 
 tf.config.optimizer.set_jit(True)
+
 
 @njit
 def encode_sequence_numba(read, encoded_seq):
@@ -47,11 +47,14 @@ def encode_sequence_numba(read, encoded_seq):
 def preprocess_sequences(sequences):
     """Converts DNA sequences into NumPy integer arrays."""
     max_len = max(len(seq) for seq in sequences)  # Get max sequence length
-    encoded_array = np.zeros((len(sequences), max_len),
-                             dtype=np.int8)  # Pre-allocate array
+    encoded_array = np.zeros(
+        (len(sequences), max_len), dtype=np.int8
+    )  # Pre-allocate array
 
     for i, seq in enumerate(sequences):
-        encoded_array[i, :len(seq)] = encode_sequence_numba(seq, encoded_array[i, :len(seq)])
+        encoded_array[i, : len(seq)] = encode_sequence_numba(
+            seq, encoded_array[i, : len(seq)]
+        )
 
     return encoded_array
 
@@ -81,7 +84,7 @@ def get_gpu_handles():
 
 
 def bytes_from_gb(gb: float) -> int:
-    return int(float(gb) * (1024 ** 3))
+    return int(float(gb) * (1024**3))
 
 
 def parse_gpu_total_gb(user_total_gb: Optional[str], num_gpus: int) -> list[int]:
@@ -106,7 +109,9 @@ def parse_gpu_total_gb(user_total_gb: Optional[str], num_gpus: int) -> list[int]
     return [bytes_from_gb(v) for v in vals]
 
 
-def usable_bytes_per_gpu(total_bytes_per_gpu: list[int], safety_margin: float = 0.35) -> list[int]:
+def usable_bytes_per_gpu(
+    total_bytes_per_gpu: list[int], safety_margin: float = 0.35
+) -> list[int]:
     """
     usable ≈ (total - TF_current) * (1 - safety_margin), clamped to >= 0
     """
@@ -114,7 +119,9 @@ def usable_bytes_per_gpu(total_bytes_per_gpu: list[int], safety_margin: float = 
     handles = get_gpu_handles()
     for i, total in enumerate(total_bytes_per_gpu):
         try:
-            info = tf.config.experimental.get_memory_info(handles[i])  # {'current','peak'}
+            info = tf.config.experimental.get_memory_info(
+                handles[i]
+            )  # {'current','peak'}
             current = int(info.get("current", 0))
         except Exception:
             current = 0
@@ -124,20 +131,23 @@ def usable_bytes_per_gpu(total_bytes_per_gpu: list[int], safety_margin: float = 
     return out
 
 
-def pick_per_replica_batch_by_tokens(seq_len,
-                                     target_tokens_per_replica=1_200_000,
-                                     min_b=1, max_b=8192):
+def pick_per_replica_batch_by_tokens(
+    seq_len, target_tokens_per_replica=1_200_000, min_b=1, max_b=8192
+):
     if seq_len <= 0:
         return min_b
     b = target_tokens_per_replica // int(seq_len)
     return int(max(min_b, min(max_b, b)))
 
 
-def pick_per_replica_batch_by_conv(usable_bytes_per_gpu,
-                                   seq_len,
-                                   conv_filters=256,
-                                   bytes_per_elem=4,  # assume fp32 conv activations/workspace
-                                   min_b=1, max_b=8192):
+def pick_per_replica_batch_by_conv(
+    usable_bytes_per_gpu,
+    seq_len,
+    conv_filters=256,
+    bytes_per_elem=4,  # assume fp32 conv activations/workspace
+    min_b=1,
+    max_b=8192,
+):
     """
     For each GPU: B <= usable / (C * L * bytes_per_elem).
     Returns the minimum across GPUs (most constrained device).
@@ -152,13 +162,16 @@ def pick_per_replica_batch_by_conv(usable_bytes_per_gpu,
     return min(caps) if caps else min_b
 
 
-def choose_global_batch(L,
-                        conv_filters=256,
-                        strategy=None,
-                        target_tokens_per_replica=1_200_000,
-                        min_b=1, max_b=8192,
-                        user_total_gb: Optional[str] = None,
-                        safety_margin: float = 0.35):
+def choose_global_batch(
+    L,
+    conv_filters=256,
+    strategy=None,
+    target_tokens_per_replica=1_200_000,
+    min_b=1,
+    max_b=8192,
+    user_total_gb: Optional[str] = None,
+    safety_margin: float = 0.35,
+):
     """
     Choose per-replica batch = min( token-based, conv-based across GPUs ),
     then scale by replicas.
@@ -168,14 +181,20 @@ def choose_global_batch(L,
     handles = get_gpu_handles()
     if not handles:
         # CPU-only fallback: use token-based
-        per_replica = pick_per_replica_batch_by_tokens(L, target_tokens_per_replica, min_b, max_b)
+        per_replica = pick_per_replica_batch_by_tokens(
+            L, target_tokens_per_replica, min_b, max_b
+        )
         return per_replica  # global==per_replica on CPU
 
     totals = parse_gpu_total_gb(user_total_gb, num_gpus=len(handles))
     usable = usable_bytes_per_gpu(totals, safety_margin=safety_margin)
 
-    limit_conv = pick_per_replica_batch_by_conv(usable, L, conv_filters, 4, min_b, max_b)
-    limit_tok  = pick_per_replica_batch_by_tokens(L, target_tokens_per_replica, min_b, max_b)
+    limit_conv = pick_per_replica_batch_by_conv(
+        usable, L, conv_filters, 4, min_b, max_b
+    )
+    limit_tok = pick_per_replica_batch_by_tokens(
+        L, target_tokens_per_replica, min_b, max_b
+    )
 
     per_replica = max(min_b, min(limit_conv, limit_tok))
     replicas = num_replicas(strategy)
@@ -183,9 +202,7 @@ def choose_global_batch(L,
     return global_b
 
 
-def predict_with_backoff(model, build_dataset_fn,
-                         start_batch: int,
-                         min_batch: int = 1):
+def predict_with_backoff(model, build_dataset_fn, start_batch: int, min_batch: int = 1):
 
     bs = int(start_batch)
     last_err = None
@@ -194,14 +211,16 @@ def predict_with_backoff(model, build_dataset_fn,
             ds = build_dataset_fn(bs)
             result = model.predict(ds, verbose=0)
             return result, bs
-        except (tf.errors.ResourceExhaustedError,
-                tf.errors.CancelledError,
-                tf.errors.InternalError) as e:
+        except (
+            tf.errors.ResourceExhaustedError,
+            tf.errors.CancelledError,
+            tf.errors.InternalError,
+        ) as e:
             last_err = e
             logger.warning(f"OOM at batch={bs}. Retrying with smaller batch...")
             K.clear_session()
             gc.collect()
-            for dev in tf.config.list_physical_devices('GPU'):
+            for dev in tf.config.list_physical_devices("GPU"):
                 try:
                     tf.config.experimental.reset_memory_stats(dev.name)
                 except Exception:
@@ -209,6 +228,7 @@ def predict_with_backoff(model, build_dataset_fn,
             time.sleep(1.0)
             bs = max(int(min_batch), bs // 2)
     raise RuntimeError("Prediction OOM/cancelled even at batch=1") from last_err
+
 
 _batch_log_once = set()
 
@@ -219,13 +239,16 @@ def _log_batch_once(bin_name: str, bs: int):
         _batch_log_once.add(bin_name)
 
 
-def annotate_new_data_parallel(new_encoded_data, model, global_bs,
-                               min_batch=1, strategy=None):
+def annotate_new_data_parallel(
+    new_encoded_data, model, global_bs, min_batch=1, strategy=None
+):
 
     os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
     if not get_gpu_handles():
-        cpu_bs = min(32, max(1, len(new_encoded_data)))  # small & predictable for tests/CI
+        cpu_bs = min(
+            32, max(1, len(new_encoded_data))
+        )  # small & predictable for tests/CI
         return model.predict(new_encoded_data, batch_size=cpu_bs, verbose=0)
 
     def build_ds(bs: int):
@@ -234,22 +257,29 @@ def annotate_new_data_parallel(new_encoded_data, model, global_bs,
             .batch(int(bs), drop_remainder=False)
             .prefetch(tf.data.AUTOTUNE)
         )
+
     preds, _ = predict_with_backoff(model, build_ds, global_bs, min_batch)
     return preds
 
 
-def build_model(model_path_w_CRF, model_path,
-                conv_filters, num_labels, strategy=None):
+def build_model(model_path_w_CRF, model_path, conv_filters, num_labels, strategy=None):
     if model_path_w_CRF:
         model_params_json_path = model_path_w_CRF.replace(".h5", "_params.json")
         with open(model_params_json_path) as f:
             raw_params = json.load(f)
         params = {
             k: (
-                v.lower() == "true" if isinstance(v, str) and v.lower() in ["true", "false"]
-                else int(v) if isinstance(v, str) and v.isdigit()
-                else float(v) if isinstance(v, str) and v.replace(".", "", 1).isdigit()
-                else v
+                v.lower() == "true"
+                if isinstance(v, str) and v.lower() in ["true", "false"]
+                else (
+                    int(v)
+                    if isinstance(v, str) and v.isdigit()
+                    else (
+                        float(v)
+                        if isinstance(v, str) and v.replace(".", "", 1).isdigit()
+                        else v
+                    )
+                )
             )
             for k, v in raw_params.items()
         }
@@ -281,12 +311,20 @@ def build_model(model_path_w_CRF, model_path,
     return model
 
 
-def model_predictions(parquet_file, chunk_start, chunk_size,
-                      model_path, model_path_w_CRF, model_type,
-                      num_labels, user_total_gb: Optional[str] = None, # e.g. "48" or "48,48,24"; None → 12 GB/GPU
-                      target_tokens_per_replica: int = 1_200_000, # tune 0.8–1.5M per your GPUs
-                      safety_margin: float = 0.35,                # keep ~35% VRAM headroom
-                      min_batch: int = 1, max_batch: int = 8192):
+def model_predictions(
+    parquet_file,
+    chunk_start,
+    chunk_size,
+    model_path,
+    model_path_w_CRF,
+    model_type,
+    num_labels,
+    user_total_gb: Optional[str] = None,  # e.g. "48" or "48,48,24"; None → 12 GB/GPU
+    target_tokens_per_replica: int = 1_200_000,  # tune 0.8–1.5M per your GPUs
+    safety_margin: float = 0.35,  # keep ~35% VRAM headroom
+    min_batch: int = 1,
+    max_batch: int = 8192,
+):
 
     total_rows = calculate_total_rows(parquet_file)
     bin_name = os.path.basename(parquet_file).replace(".parquet", "")
@@ -297,7 +335,9 @@ def model_predictions(parquet_file, chunk_start, chunk_size,
     dynamic_chunk_size = min(dynamic_chunk_size, 500000)
 
     scan_df = pl.scan_parquet(parquet_file)
-    num_chunks = (total_rows // dynamic_chunk_size) + (1 if total_rows % dynamic_chunk_size > 0 else 0)
+    num_chunks = (total_rows // dynamic_chunk_size) + (
+        1 if total_rows % dynamic_chunk_size > 0 else 0
+    )
 
     # Build/load model once (CPU: no strategy; GPU: MirroredStrategy)
     gpus = tf.config.list_physical_devices("GPU")
@@ -306,9 +346,9 @@ def model_predictions(parquet_file, chunk_start, chunk_size,
 
     conv_filters = 256  # default, will be overwritten if params present
 
-    model = build_model(model_path_w_CRF, model_path,
-                        conv_filters, num_labels,
-                        strategy=strategy)
+    model = build_model(
+        model_path_w_CRF, model_path, conv_filters, num_labels, strategy=strategy
+    )
 
     conv_filters = 256  # default, will be overwritten if params present
 
@@ -316,11 +356,17 @@ def model_predictions(parquet_file, chunk_start, chunk_size,
 
         logger.info(f"Inferring labels for {bin_name}: chunk {chunk_idx}")
 
-        df_chunk = scan_df.slice((chunk_idx - 1) * dynamic_chunk_size, dynamic_chunk_size).collect()
+        df_chunk = scan_df.slice(
+            (chunk_idx - 1) * dynamic_chunk_size, dynamic_chunk_size
+        ).collect()
         read_names = df_chunk["ReadName"].to_list()
         reads = df_chunk["read"].to_list()
         read_lengths = df_chunk["read_length"].to_list()
-        base_qualities = df_chunk["base_qualities"].to_list() if "base_qualities" in df_chunk.columns else None
+        base_qualities = (
+            df_chunk["base_qualities"].to_list()
+            if "base_qualities" in df_chunk.columns
+            else None
+        )
 
         # encoded_data = preprocess_sequences(reads)
         X_new_padded = preprocess_sequences(reads)
@@ -335,32 +381,40 @@ def model_predictions(parquet_file, chunk_start, chunk_size,
             max_b=max_batch,
             user_total_gb=user_total_gb,
             safety_margin=safety_margin,
-            )
+        )
 
         if global_bs >= 100 and len(reads) >= 100:
             _log_batch_once(bin_name or "", int(global_bs))
 
             chunk_predictions = annotate_new_data_parallel(
-                X_new_padded, model, global_bs,
-                min_batch=min_batch, strategy=strategy,
+                X_new_padded,
+                model,
+                global_bs,
+                min_batch=min_batch,
+                strategy=strategy,
             )
         else:
-            model = build_model(model_path_w_CRF, model_path,
-                                conv_filters, num_labels,
-                                strategy=None)
+            model = build_model(
+                model_path_w_CRF, model_path, conv_filters, num_labels, strategy=None
+            )
             global_bs = choose_global_batch(
-                L, conv_filters=conv_filters,
+                L,
+                conv_filters=conv_filters,
                 strategy=None,
                 target_tokens_per_replica=target_tokens_per_replica,
-                min_b=min_batch, max_b=max_batch,
+                min_b=min_batch,
+                max_b=max_batch,
                 user_total_gb=user_total_gb,
                 safety_margin=safety_margin,
             )
             _log_batch_once(bin_name or "", int(global_bs))
 
             chunk_predictions = annotate_new_data_parallel(
-                X_new_padded, model, global_bs,
-                min_batch=min_batch, strategy=None,
+                X_new_padded,
+                model,
+                global_bs,
+                min_batch=min_batch,
+                strategy=None,
             )
 
         del df_chunk, X_new_padded
@@ -368,6 +422,12 @@ def model_predictions(parquet_file, chunk_start, chunk_size,
         logger.info(f"Inferred labels for {bin_name}: chunk {chunk_idx}")
 
         yield (
-            parquet_file, bin_name, chunk_idx, chunk_predictions,
-            read_names, reads, read_lengths, base_qualities,
+            parquet_file,
+            bin_name,
+            chunk_idx,
+            chunk_predictions,
+            read_names,
+            reads,
+            read_lengths,
+            base_qualities,
         )

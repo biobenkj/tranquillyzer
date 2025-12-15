@@ -1,9 +1,11 @@
 import typer
 from typing_extensions import Annotated
 import os
+
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 import warnings
-warnings.filterwarnings('ignore', category=UserWarning, module='tensorflow')
+
+warnings.filterwarnings("ignore", category=UserWarning, module="tensorflow")
 
 # =========================
 # versioning and app setup
@@ -52,6 +54,7 @@ def main(
         typer.echo(ctx.get_help())
         raise typer.Exit()
 
+
 # =========================
 # available trained models
 # =========================
@@ -69,7 +72,9 @@ def availableModels():
         python main.py availablemodels
     """
     from scripts.trained_models import trained_models
+
     trained_models()
+
 
 # ===========================================
 # extract reads, read_names from fasta file
@@ -78,18 +83,16 @@ def availableModels():
 
 @app.command(no_args_is_help=True)
 def preprocess(
-    fasta_dir: str, 
+    fasta_dir: str,
     output_dir: str,
-    output_base_qual: bool = typer.Option(False, help=(
-        "Whether to output base quality scores"
-        )),
-    chunk_size: int = typer.Option(100000, help=(
-        "Base chunk size, dynamically adjusts based on read length"
-        )),
-    threads: int = typer.Option(12, help=(
-        "Number of CPU threads"
-        ))
-    ):
+    output_base_qual: bool = typer.Option(
+        False, help=("Whether to output base quality scores")
+    ),
+    chunk_size: int = typer.Option(
+        100000, help=("Base chunk size, dynamically adjusts based on read length")
+    ),
+    threads: int = typer.Option(12, help=("Number of CPU threads")),
+):
     """
     Preprocess raw FASTA/FASTQ files into length-binned Parquet files.
 
@@ -117,7 +120,9 @@ def preprocess(
         RuntimeError: Propagated from subprocesses if failures occur.
     """
     from wrappers.preprocess_wrap import preprocess_wrap
+
     preprocess_wrap(fasta_dir, output_dir, output_base_qual, chunk_size, threads)
+
 
 # ==============================
 # plot read length distribution
@@ -142,7 +147,9 @@ def readlengthDist(output_dir: str):
         FileNotFoundError: If required Parquet files are missing.
     """
     from wrappers.read_length_distr_wrap import read_length_distr_wrap
+
     read_length_distr_wrap(output_dir)
+
 
 # ===========================================
 # inspect selected reads for annotations
@@ -151,28 +158,36 @@ def readlengthDist(output_dir: str):
 
 @app.command(no_args_is_help=True)
 def visualize(
-    output_dir: str,          
+    output_dir: str,
     output_file: str = typer.Option(
         "full_read_annots",
-        help=("""Output annotation file name.\n
-        Extension .pdf will be added automatically""")),
-        model_name: str = typer.Option(
-            "10x3p_sc_ont_011",
-            help="""Base model name. Use the name of the model without any suffix.\n
-            For model-type CRF, _w_CRF will be added to the base model name"""),
-        model_type: Annotated[
-            str, typer.Option(help="""
+        help=(
+            """Output annotation file name.\n
+        Extension .pdf will be added automatically"""
+        ),
+    ),
+    model_name: str = typer.Option(
+        "10x3p_sc_ont_011",
+        help="""Base model name. Use the name of the model without any suffix.\n
+            For model-type CRF, _w_CRF will be added to the base model name""",
+    ),
+    model_type: Annotated[
+        str,
+        typer.Option(
+            help="""
             [red]REG[/red] = [green]CNN-LSTM[/green]\n
             [red]CRF[/red] = [green]CNN-LSTM-CRF[/green]
-            """)
-            ] = "CRF",
-        seq_order_file: str = typer.Option(
-            None,
-            help="Path to the seq_orders.tsv file. If not provided, uses the default from utils."
-            ),
-        gpu_mem: Annotated[
-            str, typer.Option(
-                help="""
+            """
+        ),
+    ] = "CRF",
+    seq_order_file: str = typer.Option(
+        None,
+        help="Path to the seq_orders.tsv file. If not provided, uses the default from utils.",
+    ),
+    gpu_mem: Annotated[
+        str,
+        typer.Option(
+            help="""
                 Total memory of the GPU in GB.\n
                 => If there's only one GPU or multiple-GPUs with same memory,
                 specify an integer\n
@@ -181,32 +196,35 @@ def visualize(
                 => If nothing is specified and one or more GPUs are available, 
                 12 GB will be used by default.\n
                 """
-                )
-            ] = None,
-        target_tokens: Annotated[
-            int, typer.Option(
-                help="""Approximate token budget *per GPU replica* used to pick a safe batch size.\n
+        ),
+    ] = None,
+    target_tokens: Annotated[
+        int,
+        typer.Option(
+            help="""Approximate token budget *per GPU replica* used to pick a safe batch size.\n
                 => A 'token' is one input position after padding (for DNA here: ~1 base = 1 token).\n
                 => Effective tokens per replica ≈ batch_size × padded_seq_len.\n
                 => Increase to try larger batches (more memory), decrease if you hit OOM.\n
                 => If running on CPU, this still guides batch size heuristics."""
-                )
-            ] = 1_200_000,
-        vram_headroom: float = typer.Option(0.35, help="Fraction of GPU memory to reserve as headroom"),
-        min_batch_size: int = typer.Option(1, help="Minimum batch size for model inference"),
-        max_batch_size: int = typer.Option(2000, help="Maximum batch size for model inference"),
-        num_reads: int = typer.Option(
-            None,
-            help="Number of reads to randomly visualize from each Parquet file."
-            ),
-        read_names: str = typer.Option(
-            None,
-            help="Comma-separated list of read names to visualize"),
-        threads: int = typer.Option(2, help=(
-            "Number of CPU threads"
-            )
-        )
-    ):
+        ),
+    ] = 1_200_000,
+    vram_headroom: float = typer.Option(
+        0.35, help="Fraction of GPU memory to reserve as headroom"
+    ),
+    min_batch_size: int = typer.Option(
+        1, help="Minimum batch size for model inference"
+    ),
+    max_batch_size: int = typer.Option(
+        2000, help="Maximum batch size for model inference"
+    ),
+    num_reads: int = typer.Option(
+        None, help="Number of reads to randomly visualize from each Parquet file."
+    ),
+    read_names: str = typer.Option(
+        None, help="Comma-separated list of read names to visualize"
+    ),
+    threads: int = typer.Option(2, help=("Number of CPU threads")),
+):
     """
     Run model inference on selected reads and export per-read annotation plots.
 
@@ -236,10 +254,23 @@ def visualize(
         FileNotFoundError: If required indices/files are missing.
     """
     from wrappers.visualize_wrap import visualize_wrap
-    
-    visualize_wrap(output_dir, output_file, model_name, model_type, 
-                   seq_order_file, gpu_mem, target_tokens, vram_headroom, 
-                   min_batch_size, max_batch_size, num_reads, read_names, threads)
+
+    visualize_wrap(
+        output_dir,
+        output_file,
+        model_name,
+        model_type,
+        seq_order_file,
+        gpu_mem,
+        target_tokens,
+        vram_headroom,
+        min_batch_size,
+        max_batch_size,
+        num_reads,
+        read_names,
+        threads,
+    )
+
 
 # =========================
 # Annotate all the reads
@@ -250,53 +281,71 @@ def visualize(
 def annotate_reads(
     output_dir: str,
     whitelist_file: str,
-    output_fmt: str = typer.Option("fasta", help=(
-        "output format for demultiplexed reads: fasta or fastq"
-        )),
+    output_fmt: str = typer.Option(
+        "fasta", help=("output format for demultiplexed reads: fasta or fastq")
+    ),
     model_name: str = typer.Option(
         "10x3p_sc_ont_011",
         help="""Base model name. Use the name of the model without any suffix.\n
-        For model-type CRF, _w_CRF will be added to the base model name"""),
+        For model-type CRF, _w_CRF will be added to the base model name""",
+    ),
     model_type: Annotated[
-        str, typer.Option(
+        str,
+        typer.Option(
             help="""
             [red]REG[/red] = [green]CNN-LSTM[/green]\n
             [red]CRF[/red] = [green]CNN-LSTM-CRF[/green]\n
             [red]HYB[/red] = [green]First pass with CNN-LSTM and second \n
             (of reads not qualifying validity filter) with CNN-LSTM-CRF[/green]
-            """)
-        ] = "HYB",
+            """
+        ),
+    ] = "HYB",
     seq_order_file: str = typer.Option(
         None,
-        help="Path to the seq_orders.tsv file. If not provided, uses the default from utils."
+        help="Path to the seq_orders.tsv file. If not provided, uses the default from utils.",
     ),
     chunk_size: int = typer.Option(
-        100000, help=(
-        "Base chunk size, dynamically adjusts based on read length"
-        )),
+        100000, help=("Base chunk size, dynamically adjusts based on read length")
+    ),
     gpu_mem: Annotated[
-        str, typer.Option(
+        str,
+        typer.Option(
             help="""
             Total memory of the GPU in GB.\n
             => If there's only one GPU or multiple-GPUs with same memory, specify an integer\n
             => If there are mutliple GPUs with different memories, specify a comma-separated list (e.g., 8,16,32)\n
             => If nothing is specified and one or more GPUs are available, 12 GB will be used by default.\n
-            """)
-        ] = None,
+            """
+        ),
+    ] = None,
     target_tokens: Annotated[
-        int, typer.Option(help=
-        """Approximate token budget *per GPU replica* used to pick a safe batch size.\n
+        int,
+        typer.Option(
+            help="""Approximate token budget *per GPU replica* used to pick a safe batch size.\n
         => A 'token' is one input position after padding (for DNA here: ~1 base = 1 token).\n
         => Effective tokens per replica ≈ batch_size × padded_seq_len.\n
         => Increase to try larger batches (more memory), decrease if you hit OOM.\n
         => If running on CPU, this still guides batch size heuristics."""
-        )] = 1_200_000,
-    vram_headroom: float = typer.Option(0.35, help="Fraction of GPU memory to reserve as headroom"),
-    min_batch_size: int = typer.Option(1, help="Minimum batch size for model inference"),
-    max_batch_size: int = typer.Option(8192, help="Maximum batch size for model inference"),
-    bc_lv_threshold: int = typer.Option(2, help="lv-distance threshold for barcode correction"),
-    threads: int = typer.Option(12, help="Number of CPU threads for barcode correction and demultiplexing"),
-    max_queue_size: int = typer.Option(3, help="Max number of Parquet files to queue for post-processing"),
+        ),
+    ] = 1_200_000,
+    vram_headroom: float = typer.Option(
+        0.35, help="Fraction of GPU memory to reserve as headroom"
+    ),
+    min_batch_size: int = typer.Option(
+        1, help="Minimum batch size for model inference"
+    ),
+    max_batch_size: int = typer.Option(
+        8192, help="Maximum batch size for model inference"
+    ),
+    bc_lv_threshold: int = typer.Option(
+        2, help="lv-distance threshold for barcode correction"
+    ),
+    threads: int = typer.Option(
+        12, help="Number of CPU threads for barcode correction and demultiplexing"
+    ),
+    max_queue_size: int = typer.Option(
+        3, help="Max number of Parquet files to queue for post-processing"
+    ),
 ):
     """
     End-to-end annotation, barcode correction, demultiplexing, and QC plots.
@@ -337,11 +386,25 @@ def annotate_reads(
         RuntimeError: Propagated exceptions from worker processes.
     """
     from wrappers.annotate_reads_wrap import annotate_reads_wrap
-    annotate_reads_wrap(output_dir, whitelist_file, output_fmt, 
-                        model_name, model_type, seq_order_file,
-                        chunk_size, gpu_mem, target_tokens,
-                        vram_headroom, min_batch_size, max_batch_size,
-                        bc_lv_threshold, threads, max_queue_size)
+
+    annotate_reads_wrap(
+        output_dir,
+        whitelist_file,
+        output_fmt,
+        model_name,
+        model_type,
+        seq_order_file,
+        chunk_size,
+        gpu_mem,
+        target_tokens,
+        vram_headroom,
+        min_batch_size,
+        max_batch_size,
+        bc_lv_threshold,
+        threads,
+        max_queue_size,
+    )
+
 
 # ======================================
 # align inserts to the reference genome
@@ -354,19 +417,23 @@ def align(
     ref: str,
     output_dir: str,
     preset: str = typer.Option("splice", help="minimap2 preset"),
-    filt_flag: str = typer.Option("0", help=(
-        "Flag for filtering out (-F in samtools) the reads. "
-        "Default is 260, to filter out secondary alignments "
-        "and unmapped reads."
-        )),
-    mapq: int = typer.Option(0, help=(
-        "minimap mapq for the alignments to be included "
-        "for the downstream analysis"
-        )),
+    filt_flag: str = typer.Option(
+        "0",
+        help=(
+            "Flag for filtering out (-F in samtools) the reads. "
+            "Default is 260, to filter out secondary alignments "
+            "and unmapped reads."
+        ),
+    ),
+    mapq: int = typer.Option(
+        0,
+        help=(
+            "minimap mapq for the alignments to be included "
+            "for the downstream analysis"
+        ),
+    ),
     threads: int = typer.Option(12, help="number of CPU threads"),
-    add_minimap_args: str = typer.Option("", help=(
-        "additional minimap2 arguments"
-        ))
+    add_minimap_args: str = typer.Option("", help=("additional minimap2 arguments")),
 ):
     """
     Align demultiplexed reads to a reference with minimap2 and index the BAM.
@@ -393,8 +460,11 @@ def align(
         CalledProcessError: If minimap2/samtools commands fail.
     """
     from wrappers.align_wrap import align_wrap
-    align_wrap(input_dir, ref, output_dir, preset, 
-               filt_flag, mapq, threads, add_minimap_args)
+
+    align_wrap(
+        input_dir, ref, output_dir, preset, filt_flag, mapq, threads, add_minimap_args
+    )
+
 
 # ==============================
 # Deduplication using UMI-tools
@@ -404,16 +474,16 @@ def align(
 @app.command(no_args_is_help=True)
 def dedup(
     input_dir: str,
-    lv_threshold: int = typer.Option(2, help=(
-        "levenshtein distance threshold for UMI similarity"
-        )),
-    stranded: bool = typer.Option(True, help=(
-        "if directional or non-directional library"
-        )),
-    per_cell: bool = typer.Option(True, help=(
-        "whether to correct umi's per cell basis"
-        )),
-    threads: int = typer.Option(12, help="number of CPU threads")
+    lv_threshold: int = typer.Option(
+        2, help=("levenshtein distance threshold for UMI similarity")
+    ),
+    stranded: bool = typer.Option(
+        True, help=("if directional or non-directional library")
+    ),
+    per_cell: bool = typer.Option(
+        True, help=("whether to correct umi's per cell basis")
+    ),
+    threads: int = typer.Option(12, help="number of CPU threads"),
 ):
     """
     Mark/remove PCR duplicates using UMI-aware clustering on aligned reads.
@@ -437,7 +507,9 @@ def dedup(
         RuntimeError: If underlying tools throw errors.
     """
     from wrappers.dedup_wrap import dedup_wrap
+
     dedup_wrap(input_dir, lv_threshold, stranded, per_cell, threads)
+
 
 # ===========================
 # Simulate training dataset
@@ -445,34 +517,42 @@ def dedup(
 
 
 @app.command(no_args_is_help=True)
-def simulate_data(model_name: str,
-                  output_dir: str,
-                  training_seq_orders_file: str = typer.Option(None, help=(
-                      "Path to the seq_orders.tsv file. If not provided, "
-                      "uses the default from utils."
-                  )),
-                  num_reads: int = typer.Option(50000, help="number of reads to simulate"),
-                  mismatch_rate: float = typer.Option(0.05, help="mismatch rate"),
-                  insertion_rate: float = typer.Option(0.05, help="insertion rate"),
-                  deletion_rate: float = typer.Option(0.06, help="deletion rate"),
-                  min_cDNA: int = typer.Option(100, help="minimum cDNA length"),
-                  max_cDNA: int = typer.Option(500, help="maximum cDNA length"),
-                  polyT_error_rate: float = typer.Option(0.02, help=(
-                      "error rate within "
-                      "polyT or polyA segments"
-                      )),
-                  max_insertions: float = typer.Option(1, help=(
-                      "maximum number of allowed "
-                      "insertions after a base"
-                      )),
-                  threads: int = typer.Option(2, help="number of CPU threads"),
-                  rc: bool = typer.Option(True, help=(
-                      "whether to include reverse complements of the reads in "
-                      "the training data.\nFinal dataset "
-                      "will contain twice the number of user-specified reads"
-                      )),
-                  transcriptome: str = typer.Option(None, help="transcriptome fasta file"),
-                  invalid_fraction: float = typer.Option(0.3, help="fraction of invalid reads to generate")):
+def simulate_data(
+    model_name: str,
+    output_dir: str,
+    training_seq_orders_file: str = typer.Option(
+        None,
+        help=(
+            "Path to the seq_orders.tsv file. If not provided, "
+            "uses the default from utils."
+        ),
+    ),
+    num_reads: int = typer.Option(50000, help="number of reads to simulate"),
+    mismatch_rate: float = typer.Option(0.05, help="mismatch rate"),
+    insertion_rate: float = typer.Option(0.05, help="insertion rate"),
+    deletion_rate: float = typer.Option(0.06, help="deletion rate"),
+    min_cDNA: int = typer.Option(100, help="minimum cDNA length"),
+    max_cDNA: int = typer.Option(500, help="maximum cDNA length"),
+    polyT_error_rate: float = typer.Option(
+        0.02, help=("error rate within " "polyT or polyA segments")
+    ),
+    max_insertions: float = typer.Option(
+        1, help=("maximum number of allowed " "insertions after a base")
+    ),
+    threads: int = typer.Option(2, help="number of CPU threads"),
+    rc: bool = typer.Option(
+        True,
+        help=(
+            "whether to include reverse complements of the reads in "
+            "the training data.\nFinal dataset "
+            "will contain twice the number of user-specified reads"
+        ),
+    ),
+    transcriptome: str = typer.Option(None, help="transcriptome fasta file"),
+    invalid_fraction: float = typer.Option(
+        0.3, help="fraction of invalid reads to generate"
+    ),
+):
     """
     Generate synthetic labeled reads for training, and serialize to PKL.
 
@@ -501,10 +581,25 @@ def simulate_data(model_name: str,
         `<output_dir>/simulated_data/labels.pkl`
     """
     from wrappers.simulate_data_wrap import simulate_data_wrap
-    simulate_data_wrap(model_name, output_dir, training_seq_orders_file,
-                       num_reads, mismatch_rate, insertion_rate, deletion_rate,
-                       min_cDNA, max_cDNA, polyT_error_rate, max_insertions,
-                       threads, rc, transcriptome, invalid_fraction)
+
+    simulate_data_wrap(
+        model_name,
+        output_dir,
+        training_seq_orders_file,
+        num_reads,
+        mismatch_rate,
+        insertion_rate,
+        deletion_rate,
+        min_cDNA,
+        max_cDNA,
+        polyT_error_rate,
+        max_insertions,
+        threads,
+        rc,
+        transcriptome,
+        invalid_fraction,
+    )
+
 
 # ===============
 #  Train model
@@ -512,35 +607,52 @@ def simulate_data(model_name: str,
 
 
 @app.command(no_args_is_help=True)
-def train_model(model_name: str,
-                output_dir: str,
-                param_file: str = typer.Option(None, help=(
-                    "Path to the training_params.tsv file. If not provided, "
-                    "uses the default from utils."
-                )),
-                training_seq_orders_file: str = typer.Option(None, help=(
-                    "Path to the seq_orders.tsv file. If not provided, "
-                    "uses the default from utils."
-                )),
-                num_val_reads: int = typer.Option(20, help="number of reads to simulate"),
-                mismatch_rate: float = typer.Option(0.05, help="mismatch rate"),
-                insertion_rate: float = typer.Option(0.05, help="insertion rate"),
-                deletion_rate: float = typer.Option(0.06, help="deletion rate"),
-                min_cDNA: int = typer.Option(100, help="minimum cDNA length"),
-                max_cDNA: int = typer.Option(500, help="maximum cDNA length"),
-                polyT_error_rate: float = typer.Option(0.02, help="error rate within polyT or polyA segments"),
-                max_insertions: float = typer.Option(2, help="maximum number of allowed insertions after a base"),
-                threads: int = typer.Option(2, help="number of CPU threads"),
-                rc: bool = typer.Option(True, help=(
-                    "whether to include reverse complements of "
-                    "the reads in the training data.\nFinal dataset will "
-                    "contain twice the number of user-specified reads"
-                    )),
-                transcriptome: str = typer.Option(None, help="transcriptome fasta file"),
-                invalid_fraction: float = typer.Option(0.3, help="fraction of invalid reads to generate"),
-                gpu_mem: Annotated[
-                str, typer.Option(
-                    help="""
+def train_model(
+    model_name: str,
+    output_dir: str,
+    param_file: str = typer.Option(
+        None,
+        help=(
+            "Path to the training_params.tsv file. If not provided, "
+            "uses the default from utils."
+        ),
+    ),
+    training_seq_orders_file: str = typer.Option(
+        None,
+        help=(
+            "Path to the seq_orders.tsv file. If not provided, "
+            "uses the default from utils."
+        ),
+    ),
+    num_val_reads: int = typer.Option(20, help="number of reads to simulate"),
+    mismatch_rate: float = typer.Option(0.05, help="mismatch rate"),
+    insertion_rate: float = typer.Option(0.05, help="insertion rate"),
+    deletion_rate: float = typer.Option(0.06, help="deletion rate"),
+    min_cDNA: int = typer.Option(100, help="minimum cDNA length"),
+    max_cDNA: int = typer.Option(500, help="maximum cDNA length"),
+    polyT_error_rate: float = typer.Option(
+        0.02, help="error rate within polyT or polyA segments"
+    ),
+    max_insertions: float = typer.Option(
+        2, help="maximum number of allowed insertions after a base"
+    ),
+    threads: int = typer.Option(2, help="number of CPU threads"),
+    rc: bool = typer.Option(
+        True,
+        help=(
+            "whether to include reverse complements of "
+            "the reads in the training data.\nFinal dataset will "
+            "contain twice the number of user-specified reads"
+        ),
+    ),
+    transcriptome: str = typer.Option(None, help="transcriptome fasta file"),
+    invalid_fraction: float = typer.Option(
+        0.3, help="fraction of invalid reads to generate"
+    ),
+    gpu_mem: Annotated[
+        str,
+        typer.Option(
+            help="""
                     Total memory of the GPU in GB.\n
                     => If there's only one GPU or multiple-GPUs with same memory, 
                     specify an integer\n
@@ -548,18 +660,29 @@ def train_model(model_name: str,
                     specify a comma-separated list (e.g., 8,16,32)\n
                     => If nothing is specified and one or more GPUs are available, 
                     12 GB will be used by default.\n
-                    """)] = None,
-                target_tokens: Annotated[
-                    int, typer.Option(help=
-                    """Approximate token budget *per GPU replica* used to pick a safe batch size.\n
+                    """
+        ),
+    ] = None,
+    target_tokens: Annotated[
+        int,
+        typer.Option(
+            help="""Approximate token budget *per GPU replica* used to pick a safe batch size.\n
                     => A 'token' is one input position after padding (for DNA here: ~1 base = 1 token).\n
                     => Effective tokens per replica ≈ batch_size × padded_seq_len.\n
                     => Increase to try larger batches (more memory), decrease if you hit OOM.\n
                     => If running on CPU, this still guides batch size heuristics."""
-                    )] = 1_200_000,
-                vram_headroom: float = typer.Option(0.35, help="Fraction of GPU memory to reserve as headroom"),
-                min_batch_size: int = typer.Option(1, help="Minimum batch size for model inference"),
-                max_batch_size: int = typer.Option(2000, help="Maximum batch size for model inference"),):
+        ),
+    ] = 1_200_000,
+    vram_headroom: float = typer.Option(
+        0.35, help="Fraction of GPU memory to reserve as headroom"
+    ),
+    min_batch_size: int = typer.Option(
+        1, help="Minimum batch size for model inference"
+    ),
+    max_batch_size: int = typer.Option(
+        2000, help="Maximum batch size for model inference"
+    ),
+):
     """
     Grid-train model variants from parameter table and export artifacts.
 
@@ -597,11 +720,30 @@ def train_model(model_name: str,
         RuntimeError: If training fails.
     """
     from wrappers.train_model_wrap import train_model_wrap
-    train_model_wrap(model_name, output_dir, param_file, training_seq_orders_file,
-                     num_val_reads, mismatch_rate, insertion_rate, deletion_rate,
-                     min_cDNA, max_cDNA, polyT_error_rate, max_insertions,
-                     threads, rc, transcriptome, invalid_fraction, gpu_mem,
-                     target_tokens, vram_headroom, min_batch_size, max_batch_size)
+
+    train_model_wrap(
+        model_name,
+        output_dir,
+        param_file,
+        training_seq_orders_file,
+        num_val_reads,
+        mismatch_rate,
+        insertion_rate,
+        deletion_rate,
+        min_cDNA,
+        max_cDNA,
+        polyT_error_rate,
+        max_insertions,
+        threads,
+        rc,
+        transcriptome,
+        invalid_fraction,
+        gpu_mem,
+        target_tokens,
+        vram_headroom,
+        min_batch_size,
+        max_batch_size,
+    )
 
 
 if __name__ == "__main__":
