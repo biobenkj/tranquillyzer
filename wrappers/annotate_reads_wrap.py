@@ -158,6 +158,7 @@ def annotate_reads_wrap(
     threads,
     max_queue_size,
     include_barcode_quals,
+    include_polya,
 ):
     (
         os,
@@ -286,6 +287,7 @@ def annotate_reads_wrap(
         header_track,
         result_queue,
         include_barcode_quals,
+        include_polya,
     ):
         """Worker function for processing reads and returning results."""
         while True:
@@ -375,6 +377,7 @@ def annotate_reads_wrap(
                     ambiguous_fasta_lock,
                     threads,
                     include_barcode_quals,
+                    include_polya,
                 )
 
                 if result:
@@ -425,6 +428,7 @@ def annotate_reads_wrap(
                     header_track,
                     result_queue,
                     include_barcode_quals,
+                    include_polya,
                 ),
             )
             for _ in range(num_workers)
@@ -534,6 +538,8 @@ def annotate_reads_wrap(
                         count,
                         header_track,
                         result_queue,
+                        include_barcode_quals,
+                        include_polya,
                     ),
                 )
                 for _ in range(num_workers)
@@ -603,21 +609,22 @@ def annotate_reads_wrap(
 
         pass_num = 1
 
-        workers = [
-            mp.Process(
-                target=post_process_worker,
-                args=(
-                    task_queue,
-                    strand,
-                    output_fmt,
-                    count,
-                    header_track,
-                    result_queue,
-                    include_barcode_quals,
-                ),
-            )
-            for _ in range(num_workers)
-        ]
+            workers = [
+                mp.Process(
+                    target=post_process_worker,
+                    args=(
+                        task_queue,
+                        strand,
+                        output_fmt,
+                        count,
+                        header_track,
+                        result_queue,
+                        include_barcode_quals,
+                        include_polya,
+                    ),
+                )
+                for _ in range(num_workers)
+            ]
 
         for worker in workers:
             worker.start()

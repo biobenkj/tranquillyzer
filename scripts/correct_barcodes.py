@@ -113,6 +113,7 @@ def process_row(
     output_dir,
     output_fmt,
     include_barcode_quals_in_header,
+    include_polya_in_output,
 ):
     result = {
         "ReadName": row["ReadName"],
@@ -176,17 +177,51 @@ def process_row(
         whitelist_dict["cell_ids"][cell_id] if cell_id != "ambiguous" else "ambiguous"
     )
 
-    cDNA_sequence = row["read"][int(row["cDNA_Starts"]) : int(row["cDNA_Ends"])]
+    cDNA_start = int(row["cDNA_Starts"])
+    cDNA_end = int(row["cDNA_Ends"])
+    cDNA_sequence = row["read"][cDNA_start:cDNA_end]
     umi_sequence = row["read"][int(row["UMI_Starts"]) : int(row["UMI_Ends"])]
+    cDNA_quality = (
+        row["base_qualities"][cDNA_start:cDNA_end] if output_fmt == "fastq" else None
+    )
+
+    polya_seq = None
+    polya_qual = None
+    if include_polya_in_output and output_fmt in {"fastq", "fasta"}:
+        polya_start_token = row.get("polyA_Starts") or row.get("polyT_Starts")
+        polya_end_token = row.get("polyA_Ends") or row.get("polyT_Ends")
+
+        try:
+            polya_start = (
+                int(float(str(polya_start_token).split(",")[0].strip()))
+                if polya_start_token not in (None, "", "None")
+                else None
+            )
+            polya_end = (
+                int(float(str(polya_end_token).split(",")[0].strip()))
+                if polya_end_token not in (None, "", "None")
+                else None
+            )
+            if polya_start is not None and polya_end is not None and polya_end > polya_start:
+                polya_seq = row["read"][polya_start:polya_end]
+                if output_fmt == "fastq" and row.get("base_qualities"):
+                    polya_qual = row["base_qualities"][polya_start:polya_end]
+        except (ValueError, TypeError):
+            polya_seq = None
+            polya_qual = None
 
     if orientation == "+" and strand == "fwd":
         pass
     elif orientation == "-" and strand == "fwd":
         cDNA_sequence = reverse_complement(cDNA_sequence)
         umi_sequence = reverse_complement(umi_sequence)
+        if polya_seq is not None:
+            polya_seq = reverse_complement(polya_seq)
     elif orientation == "+" and strand == "rev":
         cDNA_sequence = reverse_complement(cDNA_sequence)
         umi_sequence = reverse_complement(umi_sequence)
+        if polya_seq is not None:
+            polya_seq = reverse_complement(polya_seq)
     elif orientation == "-" and strand == "rev":
         pass
     else:
@@ -213,11 +248,23 @@ def process_row(
         if qual_tokens:
             barcode_qual_suffix = f"|BQ:{';'.join(qual_tokens)}"
 
+    sequence_out = cDNA_sequence
+    quality_out = cDNA_quality
+
+    if include_polya_in_output and polya_seq is not None:
+        if output_fmt == "fastq" and polya_qual is None:
+            # Skip appending polyA if qualities are unavailable in FASTQ mode to avoid length mismatch
+            pass
+        else:
+            sequence_out = cDNA_sequence + polya_seq
+            if output_fmt == "fastq" and polya_qual is not None:
+                quality_out = (quality_out or "") + polya_qual
+
     if output_fmt == "fasta":
         batch_reads[corrected_barcode_seqs_str].append(
             (
                 f">{row['ReadName']}_{corrected_barcode_seqs_str}_{umi_sequence} cell_id:{cell_id}|Barcodes:{corrected_barcodes_str}|UMI:{umi_sequence}|orientation:{orientation}",
-                cDNA_sequence,
+                sequence_out,
             )
         )
     elif output_fmt == "fastq":
@@ -229,8 +276,10 @@ def process_row(
         batch_reads[corrected_barcode_seqs_str].append(
             (
                 header,
-                cDNA_sequence,
-                row["base_qualities"][int(row["cDNA_Starts"]) : int(row["cDNA_Ends"])],
+                sequence_out,
+                quality_out
+                if quality_out is not None
+                else row["base_qualities"][cDNA_start:cDNA_end],
             )
         )
     return result, local_match_counts, local_cell_counts, batch_reads
@@ -251,6 +300,7 @@ def bc_n_demultiplex(
     ambiguous_fasta_lock,
     num_cores,
     include_barcode_quals_in_header=False,
+    include_polya_in_output=False,
 ):
     args = [
         (
@@ -263,6 +313,7 @@ def bc_n_demultiplex(
             output_dir,
             output_fmt,
             include_barcode_quals_in_header,
+            include_polya_in_output,
         )
         for _, row in chunk.iterrows()
     ]

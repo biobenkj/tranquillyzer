@@ -353,6 +353,10 @@ def annotate_reads(
             "(from seq_orders.tsv) into the FASTQ header"
         ),
     ),
+    include_polya: bool = typer.Option(
+        False,
+        help="Append detected polyA tails to output sequences (includes qualities in FASTQ)",
+    ),
 ):
     """
     End-to-end annotation, barcode correction, demultiplexing, and QC plots.
@@ -411,6 +415,7 @@ def annotate_reads(
         threads,
         max_queue_size,
         include_barcode_quals,
+        include_polya,
     )
 
 
