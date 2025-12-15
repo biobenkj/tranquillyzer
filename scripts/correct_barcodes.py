@@ -202,7 +202,11 @@ def process_row(
                 if polya_end_token not in (None, "", "None")
                 else None
             )
-            if polya_start is not None and polya_end is not None and polya_end > polya_start:
+            if (
+                polya_start is not None
+                and polya_end is not None
+                and polya_end > polya_start
+            ):
                 polya_seq = row["read"][polya_start:polya_end]
                 if output_fmt == "fastq" and row.get("base_qualities"):
                     polya_qual = row["base_qualities"][polya_start:polya_end]
@@ -277,9 +281,11 @@ def process_row(
             (
                 header,
                 sequence_out,
-                quality_out
-                if quality_out is not None
-                else row["base_qualities"][cDNA_start:cDNA_end],
+                (
+                    quality_out
+                    if quality_out is not None
+                    else row["base_qualities"][cDNA_start:cDNA_end]
+                ),
             )
         )
     return result, local_match_counts, local_cell_counts, batch_reads
