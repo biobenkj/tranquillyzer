@@ -77,8 +77,7 @@ def test_process_row_appends_polya_and_bq():
 def test_annotate_reads_wrap_missing_model_lists_available(tmp_path):
     seq_orders_file = tmp_path / "seq_orders.tsv"
     seq_orders_file.write_text(
-        "model_a\t\"x\"\t\"y\"\t\"i7\"\tUMI\tfwd\n"
-        "model_b\t\"x\"\t\"y\"\t\"i7\"\tUMI\trev\n"
+        'model_a\t"x"\t"y"\t"i7"\tUMI\tfwd\n' 'model_b\t"x"\t"y"\t"i7"\tUMI\trev\n'
     )
     whitelist_file = tmp_path / "whitelist.tsv"
     whitelist_file.write_text("i7\ni7_seq\n")
