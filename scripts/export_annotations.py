@@ -68,6 +68,7 @@ def process_full_length_reads_in_chunks_and_save(
     ambiguous_fasta_lock,
     threshold,
     n_jobs,
+    include_barcode_quals,
 ):
 
     reads_in_chunk = len(reads)
@@ -199,6 +200,7 @@ def process_full_length_reads_in_chunks_and_save(
             ambiguous_fasta,
             ambiguous_fasta_lock,
             n_jobs,
+            include_barcode_quals,
         )
         # logging.info("Corrected barcodes and demuliplexed valid reads")
 
@@ -285,6 +287,7 @@ def post_process_reads(
     ambiguous_fasta,
     ambiguous_fasta_lock,
     njobs,
+    include_barcode_quals,
 ):
 
     results = process_full_length_reads_in_chunks_and_save(
@@ -318,6 +321,7 @@ def post_process_reads(
         ambiguous_fasta_lock,
         threshold,
         njobs,
+        include_barcode_quals,
     )
 
     if results is not None:

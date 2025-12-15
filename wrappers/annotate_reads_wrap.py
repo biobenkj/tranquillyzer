@@ -157,6 +157,7 @@ def annotate_reads_wrap(
     bc_lv_threshold,
     threads,
     max_queue_size,
+    include_barcode_quals,
 ):
     (
         os,
@@ -278,7 +279,13 @@ def annotate_reads_wrap(
     cell_id_counter = manager.dict()
 
     def post_process_worker(
-        task_queue, strand, output_fmt, count, header_track, result_queue
+        task_queue,
+        strand,
+        output_fmt,
+        count,
+        header_track,
+        result_queue,
+        include_barcode_quals,
     ):
         """Worker function for processing reads and returning results."""
         while True:
@@ -367,6 +374,7 @@ def annotate_reads_wrap(
                     ambiguous_fasta,
                     ambiguous_fasta_lock,
                     threads,
+                    include_barcode_quals,
                 )
 
                 if result:
@@ -416,6 +424,7 @@ def annotate_reads_wrap(
                     count,
                     header_track,
                     result_queue,
+                    include_barcode_quals,
                 ),
             )
             for _ in range(num_workers)
@@ -604,6 +613,7 @@ def annotate_reads_wrap(
                     count,
                     header_track,
                     result_queue,
+                    include_barcode_quals,
                 ),
             )
             for _ in range(num_workers)

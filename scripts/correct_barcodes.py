@@ -112,6 +112,7 @@ def process_row(
     threshold,
     output_dir,
     output_fmt,
+    include_barcode_quals_in_header,
 ):
     result = {
         "ReadName": row["ReadName"],
@@ -192,6 +193,26 @@ def process_row(
         pass
 
     batch_reads = defaultdict(list)
+    barcode_qual_suffix = ""
+    if include_barcode_quals_in_header and output_fmt == "fastq":
+        base_q = row.get("base_qualities", "")
+        qual_tokens = []
+        for barcode_column in barcode_columns:
+            try:
+                start_token = str(row[f"{barcode_column}_Starts"]).split(",")[0].strip()
+                end_token = str(row[f"{barcode_column}_Ends"]).split(",")[0].strip()
+                if start_token and end_token:
+                    start = int(float(start_token))
+                    end = int(float(end_token))
+                    if base_q and end > start:
+                        qual_slice = base_q[start:end]
+                        qual_tokens.append(f"{barcode_column}:{qual_slice}")
+            except (KeyError, ValueError, TypeError):
+                continue
+
+        if qual_tokens:
+            barcode_qual_suffix = f"|BQ:{';'.join(qual_tokens)}"
+
     if output_fmt == "fasta":
         batch_reads[corrected_barcode_seqs_str].append(
             (
@@ -200,9 +221,14 @@ def process_row(
             )
         )
     elif output_fmt == "fastq":
+        header = (
+            f"@{row['ReadName']}_{corrected_barcode_seqs_str}_{umi_sequence} "
+            f"cell_id:{cell_id}|Barcodes:{corrected_barcodes_str}|UMI:{umi_sequence}|orientation:{orientation}"
+            f"{barcode_qual_suffix}"
+        )
         batch_reads[corrected_barcode_seqs_str].append(
             (
-                f"@{row['ReadName']}_{corrected_barcode_seqs_str}_{umi_sequence} cell_id:{cell_id}|Barcodes:{corrected_barcodes_str}|UMI:{umi_sequence}|orientation:{orientation}",
+                header,
                 cDNA_sequence,
                 row["base_qualities"][int(row["cDNA_Starts"]) : int(row["cDNA_Ends"])],
             )
@@ -224,6 +250,7 @@ def bc_n_demultiplex(
     ambiguous_fasta,
     ambiguous_fasta_lock,
     num_cores,
+    include_barcode_quals_in_header=False,
 ):
     args = [
         (
@@ -235,6 +262,7 @@ def bc_n_demultiplex(
             threshold,
             output_dir,
             output_fmt,
+            include_barcode_quals_in_header,
         )
         for _, row in chunk.iterrows()
     ]

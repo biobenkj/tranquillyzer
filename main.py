@@ -346,6 +346,13 @@ def annotate_reads(
     max_queue_size: int = typer.Option(
         3, help="Max number of Parquet files to queue for post-processing"
     ),
+    include_barcode_quals: bool = typer.Option(
+        False,
+        help=(
+            "When writing FASTQ, append base qualities for barcode segments "
+            "(from seq_orders.tsv) into the FASTQ header"
+        ),
+    ),
 ):
     """
     End-to-end annotation, barcode correction, demultiplexing, and QC plots.
@@ -403,6 +410,7 @@ def annotate_reads(
         bc_lv_threshold,
         threads,
         max_queue_size,
+        include_barcode_quals,
     )
 
 
