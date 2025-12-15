@@ -236,6 +236,20 @@ _CACHED_WHITELISTS = None
 _CACHED_KNOWN_SEQUENCES = None
 _CURRENT_CACHED_SAMPLE_ID = None
 _CACHED_WHITELIST_PATHS = None
+_CACHED_MODEL_SEGMENTS = None
+
+
+def _extract_model_segments(seq_orders_path: str, model_name: str) -> List[str]:
+    """Return the segment order list for the model from seq_orders.tsv."""
+    if not seq_orders_path or not model_name or not os.path.exists(seq_orders_path):
+        return []
+
+    with open(seq_orders_path, 'r') as f:
+        for line in f:
+            parts = line.strip().split('\t')
+            if len(parts) >= 2 and parts[0] == model_name:
+                return parts[1].strip('"').split(',')
+    return []
 
 
 def get_or_load_whitelists_and_sequences(
@@ -263,7 +277,7 @@ def get_or_load_whitelists_and_sequences(
     Returns:
         tuple(dict[str, list[str]], dict[str, str]): (whitelists by segment, fixed known sequences).
     """
-    global _CACHED_WHITELISTS, _CACHED_KNOWN_SEQUENCES, _CURRENT_CACHED_SAMPLE_ID, _CACHED_WHITELIST_PATHS
+    global _CACHED_WHITELISTS, _CACHED_KNOWN_SEQUENCES, _CURRENT_CACHED_SAMPLE_ID, _CACHED_WHITELIST_PATHS, _CACHED_MODEL_SEGMENTS
 
     if sample_id != _CURRENT_CACHED_SAMPLE_ID:
         if _CURRENT_CACHED_SAMPLE_ID is not None:
@@ -282,13 +296,9 @@ def get_or_load_whitelists_and_sequences(
     if seq_orders_path and model_name:
         if _CACHED_KNOWN_SEQUENCES is None:
             _CACHED_KNOWN_SEQUENCES = parse_seq_orders_for_known_sequences(seq_orders_path, model_name)
-
-        with open(seq_orders_path, 'r') as f:
-            for line in f:
-                parts = line.strip().split('\t')
-                if len(parts) >= 3 and parts[0] == model_name:
-                    model_segments = parts[1].strip('"').split(',')
-                    break
+        if _CACHED_MODEL_SEGMENTS is None:
+            _CACHED_MODEL_SEGMENTS = _extract_model_segments(seq_orders_path, model_name)
+        model_segments = _CACHED_MODEL_SEGMENTS
 
     if _CACHED_WHITELISTS is None:
         _CACHED_WHITELISTS = {}
@@ -430,6 +440,59 @@ def build_sequence_cols(annotated_read: dict, barcodes: list) -> dict:
         for label in barcodes
         if label in annotated_read and 'Sequences' in annotated_read[label]
     }
+
+
+def _collect_columns_to_preserve(valid_reads_df: pd.DataFrame, barcodes: list,
+                                 include_edit_distances: bool,
+                                 include_sequences: bool) -> List[str]:
+    """Figure out which columns should be merged back after demux to avoid loss."""
+    edit_dist_cols = []
+    if include_edit_distances:
+        edit_dist_cols = [col for col in valid_reads_df.columns
+                          if col.endswith('_edit_distance') or col.endswith('_match_orientation')]
+
+    segment_cols = [col for col in valid_reads_df.columns
+                    if col.endswith('_Starts') or col.endswith('_Ends') or col.endswith('_Sequences')]
+    if not include_sequences:
+        segment_cols = [col for col in segment_cols if not col.endswith('_Sequences')]
+
+    preserved_in_demux = ['cDNA_Starts', 'cDNA_Ends', 'UMI_Starts', 'UMI_Ends',
+                          'random_s_Starts', 'random_s_Ends', 'random_e_Starts', 'random_e_Ends',
+                          'polyA_Starts', 'polyA_Ends']
+    for barcode in barcodes:
+        preserved_in_demux.extend([f'{barcode}_Starts', f'{barcode}_Ends', f'{barcode}_Sequences'])
+
+    segment_cols = [col for col in segment_cols if col not in preserved_in_demux]
+
+    essential_cols = []
+    if 'read' in valid_reads_df.columns and include_sequences:
+        essential_cols.append('read')
+    if 'read_length' in valid_reads_df.columns:
+        essential_cols.append('read_length')
+    if 'base_qualities' in valid_reads_df.columns and include_sequences:
+        essential_cols.append('base_qualities')
+    for meta_col in ('architecture', 'reason', 'orientation'):
+        if meta_col in valid_reads_df.columns:
+            essential_cols.append(meta_col)
+
+    return edit_dist_cols + segment_cols + essential_cols
+
+
+def _merge_preserved_columns(corrected_df: pd.DataFrame,
+                             valid_reads_df: pd.DataFrame,
+                             cols_to_preserve: List[str]) -> Tuple[pd.DataFrame, int]:
+    """Merge preserved columns into corrected_df without introducing duplicates."""
+    if not cols_to_preserve:
+        return corrected_df, 0
+
+    existing_cols = set(corrected_df.columns)
+    cols_to_merge = [col for col in cols_to_preserve if col not in existing_cols]
+    if not cols_to_merge:
+        return corrected_df, 0
+
+    preserved_df = valid_reads_df[['ReadName'] + cols_to_merge]
+    merged_df = corrected_df.merge(preserved_df, on='ReadName', how='left')
+    return merged_df, len(cols_to_merge)
 
 
 # Main Processing Function with Edit Distances
@@ -581,47 +644,11 @@ def process_full_length_reads_in_chunks_and_save(
 
     # Process barcodes in parallel
     if not valid_reads_df.empty:
-        # Identify columns to preserve after demultiplexing
-        # bc_n_demultiplex returns a new DataFrame that only includes specific columns
-        # We need to preserve edit distances and segment positions (Starts/Ends/Sequences)
-        edit_dist_cols = []
-        if config.include_edit_distances:
-            edit_dist_cols = [col for col in valid_reads_df.columns
-                             if col.endswith('_edit_distance') or col.endswith('_match_orientation')]
-
-        # Identify all segment position and sequence columns (for fixed sequences like p7, RP2, etc.)
-        segment_cols = [col for col in valid_reads_df.columns
-                       if col.endswith('_Starts') or col.endswith('_Ends') or col.endswith('_Sequences')]
-        if not config.include_sequences_in_valid_output:
-            segment_cols = [col for col in segment_cols if not col.endswith('_Sequences')]
-
-        # Remove barcode and commonly preserved columns (those already in bc_n_demultiplex output)
-        preserved_in_demux = ['cDNA_Starts', 'cDNA_Ends', 'UMI_Starts', 'UMI_Ends',
-                             'random_s_Starts', 'random_s_Ends', 'random_e_Starts', 'random_e_Ends',
-                             'polyA_Starts', 'polyA_Ends']
-        # Also exclude barcode segments since they're handled by bc_n_demultiplex
-        for barcode in barcodes:
-            preserved_in_demux.extend([f'{barcode}_Starts', f'{barcode}_Ends', f'{barcode}_Sequences'])
-
-        segment_cols = [col for col in segment_cols if col not in preserved_in_demux]
-
-        # Add essential columns that must be preserved (read sequence, metadata, etc.)
-        essential_cols = []
-        if 'read' in valid_reads_df.columns and config.include_sequences_in_valid_output:
-            essential_cols.append('read')
-        if 'read_length' in valid_reads_df.columns:
-            essential_cols.append('read_length')
-        if 'base_qualities' in valid_reads_df.columns and config.include_sequences_in_valid_output:
-            essential_cols.append('base_qualities')
-        if 'architecture' in valid_reads_df.columns:
-            essential_cols.append('architecture')
-        if 'reason' in valid_reads_df.columns:
-            essential_cols.append('reason')
-        if 'orientation' in valid_reads_df.columns:
-            essential_cols.append('orientation')
-
-        # Combine all columns to preserve
-        cols_to_preserve = edit_dist_cols + segment_cols + essential_cols
+        cols_to_preserve = _collect_columns_to_preserve(
+            valid_reads_df, barcodes,
+            include_edit_distances=config.include_edit_distances,
+            include_sequences=config.include_sequences_in_valid_output
+        )
 
         corrected_df, match_type_counts, cell_id_counts = bc_n_demultiplex(
             valid_reads_df, strand,
@@ -632,20 +659,11 @@ def process_full_length_reads_in_chunks_and_save(
             ambiguous_fasta_lock, config.n_jobs
         )
 
-        # Filter out columns that already exist in corrected_df to avoid duplicates
-        # bc_n_demultiplex already returns columns like read_length, architecture, reason, orientation
-        if cols_to_preserve:
-            existing_cols = set(corrected_df.columns)
-            cols_to_preserve = [col for col in cols_to_preserve if col not in existing_cols]
-
-            # Only merge if there are actually columns to preserve
-            if cols_to_preserve:
-                # Merge on ReadName to preserve edit distance, segment position, and essential columns
-                preserved_df = valid_reads_df[['ReadName'] + cols_to_preserve]
-                corrected_df = corrected_df.merge(preserved_df, on='ReadName', how='left')
-                logger.info(f"Preserved {len(cols_to_preserve)} columns in valid reads output")
-            else:
-                logger.info("No additional columns to preserve - all needed columns already in bc_n_demultiplex output")
+        corrected_df, merged_count = _merge_preserved_columns(corrected_df, valid_reads_df, cols_to_preserve)
+        if merged_count:
+            logger.info(f"Preserved {merged_count} columns in valid reads output")
+        else:
+            logger.info("No additional columns to preserve - all needed columns already in bc_n_demultiplex output")
 
         # Compute barcode stats
         for barcode in list(column_mapping.keys()):
