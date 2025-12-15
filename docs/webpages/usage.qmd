@@ -128,6 +128,9 @@ reads to their respective cells (i.e., demultiplexes) in a single step. It produ
   - `OUTPUT_DIR/plots/demux_plots.pdf`
   - `OUTPUT_DIR/plots/full_read_annots.pdf`
 
+If `--include-barcode-quals` is set with FASTQ output, headers gain a `|BQ:` tag containing `segment:quality` pairs
+for the barcode segments listed in the fourth column of `seq_orders.tsv` (e.g., `|BQ:i7:<quals>;i5:<quals>;CBC:<quals>`).
+
 **Note:** Before running the `annotate-reads` subcommand, ensure you select the appropriate model and model type for
 your dataset. Tranquillyzer supports multiple model types:
 
@@ -181,6 +184,8 @@ Optional Arguments
 - `--bc-lv-threshold INTEGER`: Levenshtein distance threshold for barcode correction (default: 2)
 - `--threads INTEGER`: Number of CPU threads for barcode correction and demultiplexing (default: 12)
 - `--max-queue-size INTEGER`: Max number of Parquet files to queue for post-processing (default: 3)
+- `--include-barcode-quals`: When writing FASTQ, append base qualities for barcode segments (from `seq_orders.tsv`) into the FASTQ header
+- `--include-polya`: Append detected polyA tails to the emitted read sequence (and qualities in FASTQ)
 - `--help`: Print help message and exit
 
 # Alignment

@@ -198,6 +198,23 @@ def annotate_reads_wrap(
     if seq_order_file is None:
         seq_order_file = os.path.join(utils_dir, "seq_orders.tsv")
 
+    def _available_models(seq_orders_path):
+        """Return list of model names defined in seq_orders.tsv (best-effort)."""
+        models = []
+        try:
+            with open(seq_orders_path, "r") as f:
+                for line in f:
+                    if not line.strip():
+                        continue
+                    model_id = (
+                        line.strip().replace("'", "").replace('"', "").split("\t")[0]
+                    ).strip()
+                    if model_id:
+                        models.append(model_id)
+        except Exception:
+            pass
+        return models
+
     # TODO: model_path and model_path_w_CRF can probably be moved into the model if-statement
     #       This may have to wait until post_process_worker has been moved out of this function though
     model_path_w_CRF = None
@@ -208,9 +225,30 @@ def annotate_reads_wrap(
         with open(f"{models_dir}/{model_name}_lbl_bin.pkl", "rb") as f:
             label_binarizer = pickle.load(f)
 
-    seq_order, sequences, barcodes, UMIs, strand = seq_orders(
-        seq_order_file, model_name
-    )
+    try:
+        seq_order, sequences, barcodes, UMIs, strand = seq_orders(
+            seq_order_file, model_name
+        )
+    except Exception as e:
+        available = _available_models(seq_order_file)
+        suffix = (
+            f" Available models: {', '.join(available)}"
+            if available
+            else " No models found in seq_orders file."
+        )
+        raise ValueError(
+            f"Model '{model_name}' not found in seq_orders file: {seq_order_file}.{suffix}"
+        ) from e
+    if not seq_order:
+        available = _available_models(seq_order_file)
+        suffix = (
+            f" Available models: {', '.join(available)}"
+            if available
+            else " No models found in seq_orders file."
+        )
+        raise ValueError(
+            f"Model '{model_name}' not found in seq_orders file: {seq_order_file}.{suffix}"
+        )
     whitelist_df = pd.read_csv(whitelist_file, sep="\t")
     num_labels = len(seq_order)
 
@@ -609,22 +647,22 @@ def annotate_reads_wrap(
 
         pass_num = 1
 
-            workers = [
-                mp.Process(
-                    target=post_process_worker,
-                    args=(
-                        task_queue,
-                        strand,
-                        output_fmt,
-                        count,
-                        header_track,
-                        result_queue,
-                        include_barcode_quals,
-                        include_polya,
-                    ),
-                )
-                for _ in range(num_workers)
-            ]
+        workers = [
+            mp.Process(
+                target=post_process_worker,
+                args=(
+                    task_queue,
+                    strand,
+                    output_fmt,
+                    count,
+                    header_track,
+                    result_queue,
+                    include_barcode_quals,
+                    include_polya,
+                ),
+            )
+            for _ in range(num_workers)
+        ]
 
         for worker in workers:
             worker.start()
