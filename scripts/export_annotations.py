@@ -1,5 +1,4 @@
 import os
-import re
 import gc
 import csv
 import logging
