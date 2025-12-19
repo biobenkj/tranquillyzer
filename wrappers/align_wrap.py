@@ -1,6 +1,5 @@
-def align_wrap(
-    input_dir, ref, output_dir, preset, filt_flag, mapq, threads, add_minimap_args
-):
+def align_wrap(input_dir, ref, output_dir, preset,
+               filt_flag, mapq, threads, add_minimap_args):
 
     import os
     import time
@@ -9,8 +8,9 @@ def align_wrap(
     import logging
 
     logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-    )
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s'
+        )
     logger = logging.getLogger(__name__)
 
     start = time.time()
@@ -20,12 +20,10 @@ def align_wrap(
     elif os.path.exists(os.path.join(input_dir, "demuxed_fasta/demuxed.fasta")):
         fasta_file = os.path.join(input_dir, "demuxed_fasta/demuxed.fasta")
     else:
-        raise FileNotFoundError(
-            "No demuxed FASTA or FASTQ file found in the input directory."
-        )
+        raise FileNotFoundError("No demuxed FASTA or FASTQ file found in the input directory.")
 
-    os.makedirs(f"{output_dir}/aligned_files", exist_ok=True)
-    output_bam_dir = os.path.join(output_dir, "aligned_files")
+    os.makedirs(f'{output_dir}/aligned_files', exist_ok=True)
+    output_bam_dir = os.path.join(output_dir, 'aligned_files')
 
     output_bam = os.path.join(output_bam_dir, "demuxed_aligned.bam")
 
@@ -42,8 +40,6 @@ def align_wrap(
     logger.info("Indexing complete")
 
     usage = resource.getrusage(resource.RUSAGE_CHILDREN)
-    max_rss_mb = (
-        usage.ru_maxrss / 1024 if os.uname().sysname == "Linux" else usage.ru_maxrss
-    )  # Linux gives KB
+    max_rss_mb = usage.ru_maxrss / 1024 if os.uname().sysname == "Linux" else usage.ru_maxrss  # Linux gives KB
     logger.info(f"Peak memory usage during alignment: {max_rss_mb:.2f} MB")
     logger.info(f"Elapsed time: {time.time() - start:.2f} seconds")

@@ -17,17 +17,17 @@ from scripts.demultiplex import assign_cell_id
 
 
 def reverse_complement(seq):
-    complement = {"A": "T", "T": "A", "C": "G", "G": "C"}
-    return "".join(complement.get(base, base) for base in reversed(seq))
+    complement = {'A': 'T', 'T': 'A', 'C': 'G', 'G': 'C'}
+    return ''.join(complement.get(base, base) for base in reversed(seq))
 
 
 # Create ASCII lookup table (0-127 only, avoids excess memory usage)
 DNA_COMPLEMENT = np.zeros(128, dtype=np.uint8)  # Only map printable ASCII values
-DNA_COMPLEMENT[ord("A")] = ord("T")
-DNA_COMPLEMENT[ord("T")] = ord("A")
-DNA_COMPLEMENT[ord("G")] = ord("C")
-DNA_COMPLEMENT[ord("C")] = ord("G")
-DNA_COMPLEMENT[ord("N")] = ord("N")  # Keep 'N' unchanged
+DNA_COMPLEMENT[ord('A')] = ord('T')
+DNA_COMPLEMENT[ord('T')] = ord('A')
+DNA_COMPLEMENT[ord('G')] = ord('C')
+DNA_COMPLEMENT[ord('C')] = ord('G')
+DNA_COMPLEMENT[ord('N')] = ord('N')  # Keep 'N' unchanged
 
 
 @njit
@@ -37,11 +37,10 @@ def reverse_complement_numba(seq_ascii):
 
 
 def reverse_complement(seq):
-    seq_ascii = np.frombuffer(
-        seq.encode("ascii"), dtype=np.uint8
-    )  # Convert string to ASCII uint8
+    seq_ascii = np.frombuffer(seq.encode('ascii'),
+                              dtype=np.uint8)  # Convert string to ASCII uint8
     rev_comp_ascii = reverse_complement_numba(seq_ascii)  # Call optimized function
-    return rev_comp_ascii.tobytes().decode("ascii")  # Convert back to string
+    return rev_comp_ascii.tobytes().decode('ascii')  # Convert back to string
 
 
 def correct_barcode(row, column_name, whitelist, threshold):
@@ -49,12 +48,10 @@ def correct_barcode(row, column_name, whitelist, threshold):
     reverse_comp_barcode = reverse_complement(observed_barcode)
 
     # Get distance scores for observed barcode and reverse complement
-    candidates = process.extract(
-        observed_barcode, whitelist, scorer=Levenshtein.distance, limit=5
-    )
-    candidates_rev = process.extract(
-        reverse_comp_barcode, whitelist, scorer=Levenshtein.distance, limit=5
-    )
+    candidates = process.extract(observed_barcode, whitelist,
+                                 scorer=Levenshtein.distance, limit=5)
+    candidates_rev = process.extract(reverse_comp_barcode, whitelist,
+                                     scorer=Levenshtein.distance, limit=5)
 
     # Combine results and find minimum distance
     all_matches = candidates + candidates_rev
@@ -69,22 +66,12 @@ def correct_barcode(row, column_name, whitelist, threshold):
         #     return observed_barcode, closest_barcodes[0], min_distance, 1
         return observed_barcode, "NMF", min_distance, len(closest_barcodes)
 
-    return (
-        observed_barcode,
-        ",".join(closest_barcodes),
-        min_distance,
-        len(closest_barcodes),
-    )
+    return observed_barcode, ",".join(closest_barcodes), min_distance, len(closest_barcodes)
 
 
-def write_reads_to_fasta(
-    batch_reads,
-    output_fmt,
-    demuxed_fasta,
-    demuxed_fasta_lock,
-    ambiguous_fasta,
-    ambiguous_fasta_lock,
-):
+def write_reads_to_fasta(batch_reads, output_fmt, demuxed_fasta,
+                         demuxed_fasta_lock, ambiguous_fasta,
+                         ambiguous_fasta_lock):
     for cell_id, reads in batch_reads.items():
         if cell_id == "ambiguous":
             with ambiguous_fasta_lock:
@@ -116,31 +103,31 @@ def process_row(
     include_polya_in_output,
 ):
     result = {
-        "ReadName": row["ReadName"],
-        "read_length": row["read_length"],
-        "cDNA_Starts": row["cDNA_Starts"],
-        "cDNA_Ends": row["cDNA_Ends"],
-        "cDNA_length": int(row["cDNA_Ends"]) - int(row["cDNA_Starts"]),
-        "UMI_Starts": row["UMI_Starts"],
-        "UMI_Ends": row["UMI_Ends"],
-        "random_s_Starts": row["random_s_Starts"],
-        "random_s_Ends": row["random_s_Ends"],
-        "random_e_Starts": row["random_e_Starts"],
-        "random_e_Ends": row["random_e_Ends"],
+        'ReadName': row['ReadName'],
+        'read_length': row['read_length'],
+        'cDNA_Starts': row['cDNA_Starts'],
+        'cDNA_Ends': row['cDNA_Ends'],
+        'cDNA_length': int(row['cDNA_Ends']) - int(row['cDNA_Starts']),
+        'UMI_Starts': row['UMI_Starts'],
+        'UMI_Ends': row['UMI_Ends'],
+        'random_s_Starts': row['random_s_Starts'],
+        'random_s_Ends': row['random_s_Ends'],
+        'random_e_Starts': row['random_e_Starts'],
+        'random_e_Ends': row['random_e_Ends']
     }
 
-    if "polyA_Starts" in row and row["polyA_Starts"] != "":
-        result["polyA_Starts"] = row["polyA_Starts"]
-        result["polyA_Ends"] = row["polyA_Ends"]
-        result["polyA_lengths"] = int(row["polyA_Ends"]) - int(row["polyA_Starts"])
-    elif "polyT_Starts" in row and row["polyT_Starts"] != "":
-        result["polyA_Starts"] = row["polyT_Starts"]
-        result["polyA_Ends"] = row["polyT_Ends"]
-        result["polyA_lengths"] = int(row["polyT_Ends"]) - int(row["polyT_Starts"])
+    if 'polyA_Starts' in row and row['polyA_Starts'] != "":
+        result['polyA_Starts'] = row['polyA_Starts']
+        result['polyA_Ends'] = row['polyA_Ends']
+        result['polyA_lengths'] = int(row['polyA_Ends']) - int(row['polyA_Starts'])
+    elif 'polyT_Starts' in row and row['polyT_Starts'] != "":
+        result['polyA_Starts'] = row['polyT_Starts']
+        result['polyA_Ends'] = row['polyT_Ends']
+        result['polyA_lengths'] = int(row['polyT_Ends']) - int(row['polyT_Starts'])
     else:
-        result["polyA_Starts"] = None
-        result["polyA_Ends"] = None
-        result["polyA_lengths"] = None
+        result['polyA_Starts'] = None
+        result['polyA_Ends'] = None
+        result['polyA_lengths'] = None
 
     corrected_barcodes = []
     corrected_barcode_seqs = []
@@ -150,62 +137,58 @@ def process_row(
         corrected_barcode, corrected_seq, min_dist, count = correct_barcode(
             row, barcode_column + "_Sequences", whitelist, threshold
         )
-        result[f"corrected_{barcode_column}"] = corrected_seq
-        result[f"corrected_{barcode_column}_min_dist"] = min_dist
-        result[f"corrected_{barcode_column}_counts_with_min_dist"] = count
-        result[f"{barcode_column}_Starts"] = row[f"{barcode_column}_Starts"]
-        result[f"{barcode_column}_Ends"] = row[f"{barcode_column}_Ends"]
+        result[f'corrected_{barcode_column}'] = corrected_seq
+        result[f'corrected_{barcode_column}_min_dist'] = min_dist
+        result[f'corrected_{barcode_column}_counts_with_min_dist'] = count
+        result[f'{barcode_column}_Starts'] = row[f'{barcode_column}_Starts']
+        result[f'{barcode_column}_Ends'] = row[f'{barcode_column}_Ends']
         corrected_barcodes.append(f"{barcode_column}:{corrected_seq}")
         corrected_barcode_seqs.append(corrected_seq)
 
     corrected_barcodes_str = ";".join(corrected_barcodes)
     # corrected_barcode_seqs_str = "-".join(corrected_barcode_seqs)
 
-    orientation = row["orientation"]
+    orientation = row['orientation']
 
-    result["architecture"] = row["architecture"]
-    result["reason"] = row["reason"]
+    result['architecture'] = row['architecture']
+    result['reason'] = row['reason']
     # result['orientation'] = row['orientation']
-    result["orientation"] = orientation
+    result['orientation'] = orientation
 
-    cell_id, local_match_counts, local_cell_counts = assign_cell_id(
-        result, whitelist_df, barcode_columns
-    )
-    result["cell_id"] = cell_id
+    cell_id, local_match_counts, local_cell_counts = assign_cell_id(result,
+                                                                    whitelist_df,
+                                                                    barcode_columns)
+    result['cell_id'] = cell_id
 
-    corrected_barcode_seqs_str = (
-        whitelist_dict["cell_ids"][cell_id] if cell_id != "ambiguous" else "ambiguous"
-    )
+    corrected_barcode_seqs_str = whitelist_dict["cell_ids"][cell_id] if cell_id != "ambiguous" else "ambiguous"
 
-    cDNA_start = int(row["cDNA_Starts"])
-    cDNA_end = int(row["cDNA_Ends"])
-    cDNA_sequence = row["read"][cDNA_start:cDNA_end]
-    umi_sequence = row["read"][int(row["UMI_Starts"]) : int(row["UMI_Ends"])]
-    cDNA_quality = (
-        row["base_qualities"][cDNA_start:cDNA_end] if output_fmt == "fastq" else None
-    )
+    cDNA_start = int(row['cDNA_Starts'])
+    cDNA_end = int(row['cDNA_Ends'])
+    cDNA_sequence = row['read'][cDNA_start:cDNA_end]
+    umi_sequence = row['read'][int(row['UMI_Starts']):int(row['UMI_Ends'])]
+    cDNA_quality = row['base_qualities'][cDNA_start:cDNA_end] if output_fmt == 'fastq' else None
 
     polya_seq = None
     polya_qual = None
-    if include_polya_in_output and output_fmt in {"fastq", "fasta"}:
-        polya_start_token = row.get("polyA_Starts") or row.get("polyT_Starts")
-        polya_end_token = row.get("polyA_Ends") or row.get("polyT_Ends")
+    if include_polya_in_output and output_fmt in {'fastq', 'fasta'}:
+        polya_start_token = row.get('polyA_Starts') or row.get('polyT_Starts')
+        polya_end_token = row.get('polyA_Ends') or row.get('polyT_Ends')
 
         try:
             polya_start = (
-                int(float(str(polya_start_token).split(",")[0].strip()))
-                if polya_start_token not in (None, "", "None")
+                int(float(str(polya_start_token).split(',')[0].strip()))
+                if polya_start_token not in (None, '', 'None')
                 else None
             )
             polya_end = (
-                int(float(str(polya_end_token).split(",")[0].strip()))
-                if polya_end_token not in (None, "", "None")
+                int(float(str(polya_end_token).split(',')[0].strip()))
+                if polya_end_token not in (None, '', 'None')
                 else None
             )
             if polya_start is not None and polya_end is not None and polya_end > polya_start:
-                polya_seq = row["read"][polya_start:polya_end]
-                if output_fmt == "fastq" and row.get("base_qualities"):
-                    polya_qual = row["base_qualities"][polya_start:polya_end]
+                polya_seq = row['read'][polya_start:polya_end]
+                if output_fmt == 'fastq' and row.get('base_qualities'):
+                    polya_qual = row['base_qualities'][polya_start:polya_end]
         except (ValueError, TypeError):
             polya_seq = None
             polya_qual = None
@@ -273,10 +256,9 @@ def process_row(
 
     if output_fmt == "fasta":
         batch_reads[corrected_barcode_seqs_str].append(
-            (
-                f">{row['ReadName']}_{corrected_barcode_seqs_str}_{umi_sequence} cell_id:{cell_id}|Barcodes:{corrected_barcodes_str}|UMI:{umi_sequence}|orientation:{orientation}",
-                sequence_out,
-            )
+            (f">{row['ReadName']}_{corrected_barcode_seqs_str}_{umi_sequence} "
+             f"cell_id:{cell_id}|Barcodes:{corrected_barcodes_str}|UMI:{umi_sequence}|orientation:{orientation}",
+             sequence_out)
         )
     elif output_fmt == "fastq":
         header = (
@@ -285,13 +267,10 @@ def process_row(
             f"{barcode_qual_suffix}"
         )
         batch_reads[corrected_barcode_seqs_str].append(
-            (
-                header,
-                sequence_out,
-                quality_out
-                if quality_out is not None
-                else row["base_qualities"][cDNA_start:cDNA_end],
-            )
+            (header,
+             sequence_out,
+             quality_out if quality_out is not None
+             else row['base_qualities'][cDNA_start:cDNA_end])
         )
     return result, local_match_counts, local_cell_counts, batch_reads
 
@@ -333,23 +312,16 @@ def bc_n_demultiplex(
 
     if num_cores > 1:
         with Pool(num_cores) as pool:
-            results = list(
-                tqdm(
-                    pool.starmap(process_row, args),
-                    total=len(chunk),
-                    desc="Processing rows",
-                    disable=True,
-                )
-            )
+            results = list(tqdm(pool.starmap(process_row, args),
+                                total=len(chunk),
+                                desc="Processing rows",
+                                disable=True))
 
     elif num_cores == 1:
         # Loop through each row sequentially instead of using multiprocessing
-        for arg in tqdm(
-            args,
-            total=len(chunk),
-            desc="Processing rows (no parallelism)",
-            disable=True,
-        ):
+        for arg in tqdm(args, total=len(chunk),
+                        desc="Processing rows (no parallelism)",
+                        disable=True):
             result = process_row(*arg)
             results.append(result)
 
@@ -365,14 +337,9 @@ def bc_n_demultiplex(
         for cell_id, reads in res[3].items():
             batch_reads[cell_id].extend(reads)
 
-    write_reads_to_fasta(
-        batch_reads,
-        output_fmt,
-        demuxed_fasta,
-        demuxed_fasta_lock,
-        ambiguous_fasta,
-        ambiguous_fasta_lock,
-    )
+    write_reads_to_fasta(batch_reads, output_fmt, demuxed_fasta,
+                         demuxed_fasta_lock, ambiguous_fasta,
+                         ambiguous_fasta_lock)
 
     match_type_counts = defaultdict(int)
     cell_id_counts = defaultdict(int)
@@ -390,30 +357,26 @@ def bc_n_demultiplex(
     return corrected_df, match_type_counts, cell_id_counts
 
 
-def generate_barcodes_stats_pdf(
-    cumulative_barcodes_stats, barcode_columns, pdf_filename="barcode_plots.pdf"
-):
+def generate_barcodes_stats_pdf(cumulative_barcodes_stats,
+                                barcode_columns,
+                                pdf_filename="barcode_plots.pdf"):
 
     with PdfPages(pdf_filename) as pdf:
         for barcode_column in barcode_columns:
-            count_data = pd.Series(
-                cumulative_barcodes_stats[barcode_column]["count_data"]
-            ).sort_index()
-            min_dist_data = pd.Series(
-                cumulative_barcodes_stats[barcode_column]["min_dist_data"]
-            ).sort_index()
+            count_data = pd.Series(cumulative_barcodes_stats[barcode_column]['count_data']).sort_index()
+            min_dist_data = pd.Series(cumulative_barcodes_stats[barcode_column]['min_dist_data']).sort_index()
 
             fig, axs = plt.subplots(1, 2, figsize=(14, 6))
 
-            axs[0].bar(count_data.index, count_data.values, color="skyblue")
-            axs[0].set_xlabel(f"Number of Matches")
-            axs[0].set_ylabel("Frequency")
-            axs[0].set_title(f"{barcode_column} - Number of Matches")
+            axs[0].bar(count_data.index, count_data.values, color='skyblue')
+            axs[0].set_xlabel(f'Number of Matches')
+            axs[0].set_ylabel('Frequency')
+            axs[0].set_title(f'{barcode_column} - Number of Matches')
 
-            axs[1].bar(min_dist_data.index, min_dist_data.values, color="lightgreen")
-            axs[1].set_xlabel(f"Minimum Distance")
-            axs[1].set_ylabel("Frequency")
-            axs[1].set_title(f"{barcode_column} - Minimum Distance")
+            axs[1].bar(min_dist_data.index, min_dist_data.values, color='lightgreen')
+            axs[1].set_xlabel(f'Minimum Distance')
+            axs[1].set_ylabel('Frequency')
+            axs[1].set_title(f'{barcode_column} - Minimum Distance')
 
             plt.tight_layout()
             pdf.savefig(fig)

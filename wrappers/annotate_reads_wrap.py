@@ -4,11 +4,8 @@ import queue
 import time
 
 # Share logger across all functions in module
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
-
 
 def load_libs():
     import os
@@ -39,39 +36,15 @@ def load_libs():
     from scripts.correct_barcodes import generate_barcodes_stats_pdf
     from scripts.demultiplex import generate_demux_stats_pdf
 
-    return (
-        os,
-        gc,
-        sys,
-        resource,
-        pickle,
-        mp,
-        Manager,
-        defaultdict,
-        psutil,
-        pl,
-        FileLock,
-        pd,
-        model_predictions,
-        post_process_reads,
-        seq_orders,
-        estimate_average_read_length_from_bin,
-        calculate_total_rows,
-        generate_barcodes_stats_pdf,
-        generate_demux_stats_pdf,
-        plot_read_n_cDNA_lengths,
-        convert_tsv_to_parquet,
-    )
+    return (os, gc, sys, resource, pickle, mp, Manager,
+            defaultdict, psutil, pl, FileLock, pd,
+            model_predictions, post_process_reads,
+            seq_orders, estimate_average_read_length_from_bin,
+            calculate_total_rows, generate_barcodes_stats_pdf,
+            generate_demux_stats_pdf, plot_read_n_cDNA_lengths,
+            convert_tsv_to_parquet)
 
-
-def collect_prediction_stats(
-    result_queue,
-    workers,
-    match_type_counter,
-    cell_id_counter,
-    cumulative_barcodes_stats,
-    max_idle_time=60,
-):
+def collect_prediction_stats(result_queue, workers, match_type_counter, cell_id_counter, cumulative_barcodes_stats, max_idle_time=60):
     """Collect results from each model prediction and collate into shared stats"""
     idle_start = None
 
@@ -83,9 +56,7 @@ def collect_prediction_stats(
             idle_start = None
 
             if result:
-                local_cumulative_stats, local_match_counter, local_cell_counter, _ = (
-                    result
-                )
+                local_cumulative_stats, local_match_counter, local_cell_counter, _ = result
 
                 # Count how (all matched, majority matched, ambiguous, etc.) barcodes match
                 for key, value in local_match_counter.items():
@@ -99,10 +70,7 @@ def collect_prediction_stats(
                 for barcode in local_cumulative_stats.keys():
                     for stat in ["count_data", "min_dist_data"]:
                         for key, value in local_cumulative_stats[barcode][stat].items():
-                            cumulative_barcodes_stats[barcode][stat][key] = (
-                                cumulative_barcodes_stats[barcode][stat].get(key, 0)
-                                + value
-                            )
+                            cumulative_barcodes_stats[barcode][stat][key]=cumulative_barcodes_stats[barcode][stat].get(key, 0) + value
         except queue.Empty:
             # Wait for the queue to get more entries
             if idle_start is None:
@@ -112,7 +80,6 @@ def collect_prediction_stats(
                 raise TimeoutError(
                     f"Result queue timed out after no data for {max_idle_time} seconds and no workers finished."
                 )
-
 
 def _empty_results_queue(result_queue, workers, max_idle_time=60):
     """Runs when error encountered during model prediction. Clears queue to allow for clean exit."""
@@ -129,9 +96,7 @@ def _empty_results_queue(result_queue, workers, max_idle_time=60):
             # Wait for the queue to get more entries
             if idle_start is None:
                 idle_start = time.time()
-                logger.info(
-                    "Result queue idle during shutdown, waiting for more results"
-                )
+                logger.info("Result queue idle during shutdown, waiting for more results")
             elif time.time() - idle_start > max_idle_time:
                 # This may be overkill
                 raise TimeoutError(
@@ -139,7 +104,6 @@ def _empty_results_queue(result_queue, workers, max_idle_time=60):
                 )
 
     logger.info("Results queue cleared. Commence shutdown due to error")
-
 
 def annotate_reads_wrap(
     output_dir,
@@ -258,14 +222,9 @@ def annotate_reads_wrap(
     valid_output_file = os.path.join(output_dir, "annotations_valid.tsv")
 
     parquet_files = sorted(
-        [
-            os.path.join(base_folder_path, f)
-            for f in os.listdir(base_folder_path)
-            if f.endswith(".parquet") and not f.endswith("read_index.parquet")
-        ],
-        key=lambda f: estimate_average_read_length_from_bin(
-            os.path.basename(f).replace(".parquet", "")
-        ),
+        [os.path.join(base_folder_path, f) for f in os.listdir(base_folder_path)
+         if f.endswith('.parquet') and not f.endswith('read_index.parquet')],
+        key=lambda f: estimate_average_read_length_from_bin(os.path.basename(f).replace(".parquet", ""))
     )
 
     fasta_dir = os.path.join(output_dir, "demuxed_fasta")
@@ -300,7 +259,7 @@ def annotate_reads_wrap(
         **{
             input_column: whitelist_df[whitelist_column].dropna().unique().tolist()
             for input_column, whitelist_column in column_mapping.items()
-        },
+        }
     }
 
     # Create objects shared across processes
@@ -308,10 +267,9 @@ def annotate_reads_wrap(
     cumulative_barcodes_stats = manager.dict(
         {
             barcode: {
-                "count_data": manager.dict(),
-                "min_dist_data": manager.dict(),
-            }
-            for barcode in column_mapping.keys()
+                'count_data': manager.dict(),
+                'min_dist_data': manager.dict(),
+            } for barcode in column_mapping.keys()
         }
     )
     match_type_counter = manager.dict()
@@ -334,24 +292,11 @@ def annotate_reads_wrap(
                 if item is None:
                     break
 
-                (
-                    parquet_file,
-                    bin_name,
-                    chunk_idx,
-                    predictions,
-                    read_names,
-                    reads,
-                    read_lengths,
-                    base_qualities,
-                ) = item
+                parquet_file, bin_name, chunk_idx, predictions, read_names, reads, read_lengths, base_qualities = item
 
-                local_cumulative_stats = {
-                    barcode: {"count_data": {}, "min_dist_data": {}}
-                    for barcode in column_mapping.keys()
-                }
-                local_match_counter, local_cell_counter = defaultdict(int), defaultdict(
-                    int
-                )
+                local_cumulative_stats = {barcode: {'count_data': {},
+                                                    'min_dist_data': {}} for barcode in column_mapping.keys()}
+                local_match_counter, local_cell_counter = defaultdict(int), defaultdict(int)
 
                 # FIXME: output_dir comes from outer function
                 checkpoint_file = os.path.join(output_dir, "annotation_checkpoint.txt")
@@ -380,36 +325,20 @@ def annotate_reads_wrap(
                 # -- ambiguous_fasta_lock
                 # -- threads
                 result = post_process_reads(
-                    reads,
-                    read_names,
-                    strand,
-                    output_fmt,
-                    base_qualities,
-                    model_type,
-                    pass_num,
-                    model_path_w_CRF,
-                    predictions,
-                    label_binarizer,
+                    reads, read_names, strand, output_fmt,
+                    base_qualities, model_type,
+                    pass_num, model_path_w_CRF,
+                    predictions, label_binarizer,
                     local_cumulative_stats,
-                    read_lengths,
-                    seq_order,
-                    add_header,
-                    bin_name,
-                    chunk_idx,
-                    output_dir,
+                    read_lengths, seq_order,
+                    add_header, bin_name, chunk_idx, output_dir,
                     invalid_output_file,
-                    invalid_file_lock,
-                    valid_output_file,
-                    valid_file_lock,
-                    barcodes,
-                    whitelist_df,
-                    whitelist_dict,
-                    bc_lv_threshold,
-                    checkpoint_file,
-                    1,
-                    local_match_counter,
-                    local_cell_counter,
-                    demuxed_fasta,
+                    invalid_file_lock, valid_output_file,
+                    valid_file_lock, barcodes,
+                    whitelist_df, whitelist_dict,
+                    bc_lv_threshold, checkpoint_file,
+                    1, local_match_counter,
+                    local_cell_counter, demuxed_fasta,
                     demuxed_fasta_lock,
                     ambiguous_fasta,
                     ambiguous_fasta_lock,
@@ -419,21 +348,13 @@ def annotate_reads_wrap(
                 )
 
                 if result:
-                    local_cumulative_stats, local_match_counter, local_cell_counter = (
-                        result
-                    )
-                    result_queue.put(
-                        (
-                            local_cumulative_stats,
-                            local_match_counter,
-                            local_cell_counter,
-                            bin_name,
-                        )
-                    )
+                    local_cumulative_stats, local_match_counter, local_cell_counter = result
+                    result_queue.put((local_cumulative_stats,
+                                      local_match_counter,
+                                      local_cell_counter,
+                                      bin_name))
                 else:
-                    logger.warning(
-                        f"No result from post_process_reads in {bin_name}, chunk {chunk_idx}"
-                    )
+                    logger.warning(f"No result from post_process_reads in {bin_name}, chunk {chunk_idx}")
 
                 with count.get_lock():
                     count.value += 1
@@ -448,8 +369,8 @@ def annotate_reads_wrap(
     if model_type == "REG" or model_type == "HYB":
         task_queue = mp.Queue(maxsize=max_queue_size)
         result_queue = mp.Queue()
-        count = mp.Value("i", 0)
-        header_track = mp.Value("i", 0)
+        count = mp.Value('i', 0)
+        header_track = mp.Value('i', 0)
 
         pass_num = 1
 
@@ -481,20 +402,16 @@ def annotate_reads_wrap(
         logger.info("Starting first pass with regular model on all the reads")
         try:
             for parquet_file in parquet_files:
-                for item in model_predictions(
-                    parquet_file,
-                    1,
-                    chunk_size,
-                    model_path,
-                    model_path_w_CRF,
-                    model_type,
-                    num_labels,
-                    user_total_gb=gpu_mem,
-                    target_tokens_per_replica=target_tokens,
-                    safety_margin=vram_headroom,
-                    min_batch=min_batch_size,
-                    max_batch=max_batch_size,
-                ):
+                for item in model_predictions(parquet_file, 1,
+                                            chunk_size, model_path,
+                                            model_path_w_CRF,
+                                            model_type,
+                                            num_labels,
+                                            user_total_gb=gpu_mem,
+                                            target_tokens_per_replica=target_tokens,
+                                            safety_margin=vram_headroom,
+                                            min_batch=min_batch_size,
+                                            max_batch=max_batch_size):
                     task_queue.put(item)
                     with header_track.get_lock():
                         header_track.value += 1
@@ -509,9 +426,7 @@ def annotate_reads_wrap(
                 worker.close()
 
             # TODO: Update error message when checkpoint restart is re-enabled
-            logger.error(
-                f"Error found while annotating: {e}. Output files may be corrupted - PLEASE DELETE AND START AGAIN. Exiting!"
-            )
+            logger.error(f"Error found while annotating: {e}. Output files may be corrupted - PLEASE DELETE AND START AGAIN. Exiting!")
             sys.exit(1)
 
         logger.info(f"[Memory] RSS: {psutil.Process().memory_info().rss / 1e6:.2f} MB")
@@ -520,13 +435,7 @@ def annotate_reads_wrap(
             task_queue.put(None)
 
         logger.info(f"[Memory] RSS: {psutil.Process().memory_info().rss / 1e6:.2f} MB")
-        collect_prediction_stats(
-            result_queue,
-            workers,
-            match_type_counter,
-            cell_id_counter,
-            cumulative_barcodes_stats,
-        )
+        collect_prediction_stats(result_queue, workers, match_type_counter, cell_id_counter, cumulative_barcodes_stats)
         logger.info(f"[Memory] RSS: {psutil.Process().memory_info().rss / 1e6:.2f} MB")
 
         logger.info("Finished first pass with regular model on all the reads")
@@ -538,18 +447,14 @@ def annotate_reads_wrap(
         model_path_w_CRF = f"{models_dir}/{model_name}_w_CRF.h5"
 
         if model_type == "HYB":
-            tmp_invalid_dir = os.path.join(output_dir, "tmp_invalid_reads")
+            tmp_invalid_dir = os.path.join(output_dir,
+                                           "tmp_invalid_reads")
 
-            convert_tsv_to_parquet(tmp_invalid_dir, row_group_size=1000000)
+            convert_tsv_to_parquet(tmp_invalid_dir,
+                                   row_group_size=1000000)
             invalid_parquet_files = sorted(
-                [
-                    os.path.join(tmp_invalid_dir, f)
-                    for f in os.listdir(tmp_invalid_dir)
-                    if f.endswith(".parquet") and not f.endswith("read_index.parquet")
-                ],
-                key=lambda f: estimate_average_read_length_from_bin(
-                    os.path.basename(f).replace(".parquet", "")
-                ),
+                [os.path.join(tmp_invalid_dir, f) for f in os.listdir(tmp_invalid_dir) if f.endswith('.parquet') and not f.endswith('read_index.parquet')],
+                key=lambda f: estimate_average_read_length_from_bin(os.path.basename(f).replace(".parquet", ""))
             )
 
             with open(f"{models_dir}/{model_name}_w_CRF_lbl_bin.pkl", "rb") as f:
@@ -590,15 +495,10 @@ def annotate_reads_wrap(
             try:
                 for invalid_parquet_file in invalid_parquet_files:
                     if calculate_total_rows(invalid_parquet_file) >= 100:
-                        for item in model_predictions(
-                            invalid_parquet_file,
-                            1,
-                            chunk_size,
-                            model_path,
-                            model_path_w_CRF,
-                            model_type,
-                            num_labels,
-                        ):
+                        for item in model_predictions(invalid_parquet_file, 1,
+                                                    chunk_size, model_path,
+                                                    model_path_w_CRF,
+                                                    model_type, num_labels):
                             task_queue.put(item)
                             with header_track.get_lock():
                                 header_track.value += 1
@@ -613,21 +513,13 @@ def annotate_reads_wrap(
                     worker.close()
 
                 # TODO: Update error message when checkpoint restart is re-enabled
-                logger.error(
-                    f"Error found while annotating: {e}. Output files may be corrupted - PLEASE DELETE AND START AGAIN. Exiting!"
-                )
+                logger.error(f"Error found while annotating: {e}. Output files may be corrupted - PLEASE DELETE AND START AGAIN. Exiting!")
                 sys.exit(1)
 
             for _ in range(threads):
                 task_queue.put(None)
 
-            collect_prediction_stats(
-                result_queue,
-                workers,
-                match_type_counter,
-                cell_id_counter,
-                cumulative_barcodes_stats,
-            )
+            collect_prediction_stats(result_queue, workers, match_type_counter, cell_id_counter, cumulative_barcodes_stats)
             logger.info("Finished second pass with CRF model on invalid reads")
 
             for worker in workers:
@@ -642,8 +534,8 @@ def annotate_reads_wrap(
 
         task_queue = mp.Queue(maxsize=max_queue_size)
         result_queue = mp.Queue()
-        count = mp.Value("i", 0)
-        header_track = mp.Value("i", 0)
+        count = mp.Value('i', 0)
+        header_track = mp.Value('i', 0)
 
         pass_num = 1
 
@@ -670,15 +562,10 @@ def annotate_reads_wrap(
         logger.info("Starting first pass with CRF model on all the reads")
         try:
             for parquet_file in parquet_files:
-                for item in model_predictions(
-                    parquet_file,
-                    1,
-                    chunk_size,
-                    None,
-                    model_path_w_CRF,
-                    model_type,
-                    num_labels,
-                ):
+                for item in model_predictions(parquet_file, 1,
+                                            chunk_size, None,
+                                            model_path_w_CRF,
+                                            model_type, num_labels):
                     task_queue.put(item)
                     with header_track.get_lock():
                         header_track.value += 1
@@ -693,21 +580,13 @@ def annotate_reads_wrap(
                 worker.close()
 
             # TODO: Update error message when checkpoint restart is re-enabled
-            logger.error(
-                f"Error found while annotating: {e}. Output files may be corrupted - PLEASE DELETE AND START AGAIN. Exiting!"
-            )
+            logger.error(f"Error found while annotating: {e}. Output files may be corrupted - PLEASE DELETE AND START AGAIN. Exiting!")
             sys.exit(1)
 
         for _ in range(threads):
             task_queue.put(None)
 
-        collect_prediction_stats(
-            result_queue,
-            workers,
-            match_type_counter,
-            cell_id_counter,
-            cumulative_barcodes_stats,
-        )
+        collect_prediction_stats(result_queue, workers, match_type_counter, cell_id_counter, cumulative_barcodes_stats)
 
         logger.info("Finished first pass with CRF model on all the reads")
 
@@ -718,46 +597,39 @@ def annotate_reads_wrap(
     # Convert shared dictionary to a standard dictionary
     # Each key of the inner dictionary is its own shared dictionary, so convert those as well
     cumulative_barcodes_stats = {
-        k: {stat: dict(stat_dict) for stat, stat_dict in inner.items()}
-        for k, inner in cumulative_barcodes_stats.items()
+        k: {
+            stat: dict(stat_dict) for stat, stat_dict in inner.items()
+        } for k, inner in cumulative_barcodes_stats.items()
     }
 
     os.makedirs(f"{output_dir}/plots", exist_ok=True)
 
     logger.info("Generating barcode stats plots")
-    generate_barcodes_stats_pdf(
-        cumulative_barcodes_stats,
-        list(column_mapping.keys()),
-        pdf_filename=f"{output_dir}/plots/barcode_plots.pdf",
-    )
+    generate_barcodes_stats_pdf(cumulative_barcodes_stats, list(column_mapping.keys()),
+                                pdf_filename=f"{output_dir}/plots/barcode_plots.pdf")
     logger.info("Generated barcode stats plots")
 
     logger.info("Generating demux stats plots")
-    generate_demux_stats_pdf(
-        f"{output_dir}/plots/demux_plots.pdf",
-        f"{output_dir}/matchType_readCount.tsv",
-        f"{output_dir}/cellId_readCount.tsv",
-        match_type_counter,
-        cell_id_counter,
-    )
+    generate_demux_stats_pdf(f"{output_dir}/plots/demux_plots.pdf",
+                             f"{output_dir}/matchType_readCount.tsv",
+                             f"{output_dir}/cellId_readCount.tsv",
+                             match_type_counter, cell_id_counter)
     logger.info("Generated demux stats plots")
 
     if os.path.exists(f"{output_dir}/annotations_valid.tsv"):
-        with open(f"{output_dir}/annotations_valid.tsv", "r") as f:
-            header = f.readline().strip().split("\t")
+        with open(f"{output_dir}/annotations_valid.tsv", 'r') as f:
+            header = f.readline().strip().split('\t')
             dtypes = {col: pl.Utf8 for col in header if col != "read_length"}
             dtypes["read_length"] = pl.Int64
 
-        df = pl.scan_csv(
-            f"{output_dir}/annotations_valid.tsv", separator="\t", dtypes=dtypes
-        )
+        df = pl.scan_csv(f"{output_dir}/annotations_valid.tsv",
+                         separator='\t',
+                         dtypes=dtypes)
         annotations_valid_parquet_file = f"{output_dir}/annotations_valid.parquet"
         logger.info("Converting annotations_valid.tsv")
-        df.sink_parquet(
-            annotations_valid_parquet_file,
-            compression="snappy",
-            row_group_size=chunk_size,
-        )
+        df.sink_parquet(annotations_valid_parquet_file,
+                        compression="snappy",
+                        row_group_size=chunk_size)
         logger.info("Converted annotations_valid.tsv to annotations_valid.parquet")
         os.system(f"rm {output_dir}/annotations_valid.tsv")
         os.system(f"rm {output_dir}/annotations_valid.tsv.lock")
@@ -770,32 +642,26 @@ def annotate_reads_wrap(
         logger.warning("annotations_valid.tsv not found. Skipping Parquet conversion.")
 
     if os.path.exists(f"{output_dir}/annotations_invalid.tsv"):
-        logger.info(
-            "annotations_invalid.tsv found — proceeding with Parquet conversion"
-        )
-        with open(f"{output_dir}/annotations_invalid.tsv", "r") as f:
-            header = f.readline().strip().split("\t")
+        logger.info("annotations_invalid.tsv found — proceeding with Parquet conversion")
+        with open(f"{output_dir}/annotations_invalid.tsv", 'r') as f:
+            header = f.readline().strip().split('\t')
         dtypes = {col: pl.Utf8 for col in header if col != "read_length"}
         dtypes["read_length"] = pl.Int64
 
-        df = pl.scan_csv(
-            f"{output_dir}/annotations_invalid.tsv", separator="\t", dtypes=dtypes
-        )
+        df = pl.scan_csv(f"{output_dir}/annotations_invalid.tsv",
+                         separator='\t',
+                         dtypes=dtypes)
         annotations_invalid_parquet_file = f"{output_dir}/annotations_invalid.parquet"
         logger.info("Converting annotations_invalid.tsv")
-        df.sink_parquet(
-            annotations_invalid_parquet_file,
-            compression="snappy",
-            row_group_size=chunk_size,
-        )
+        df.sink_parquet(annotations_invalid_parquet_file,
+                        compression="snappy",
+                        row_group_size=chunk_size)
         logger.info("Converted annotations_invalid.tsv to annotations_invalid.parquet")
         os.system(f"rm {output_dir}/annotations_invalid.tsv")
         os.system(f"rm {output_dir}/annotations_invalid.tsv.lock")
         del df
     else:
-        logger.warning(
-            "annotations_invalid.tsv not found. Skipping Parquet conversion."
-        )
+        logger.warning("annotations_invalid.tsv not found. Skipping Parquet conversion.")
 
     if os.path.exists(f"{output_dir}/demuxed_fasta/demuxed.fasta.lock"):
         os.system(f"rm {output_dir}/demuxed_fasta/demuxed.fasta.lock")
@@ -810,10 +676,6 @@ def annotate_reads_wrap(
         os.system(f"rm -r {output_dir}/tmp_invalid_reads")
 
     usage = resource.getrusage(resource.RUSAGE_CHILDREN)
-    max_rss_mb = (
-        usage.ru_maxrss / 1024 if os.uname().sysname == "Linux" else usage.ru_maxrss
-    )  # Linux gives KB
-    logger.info(
-        f"Peak memory usage during annotation/barcode correction/demuxing: {max_rss_mb:.2f} MB"
-    )
+    max_rss_mb = usage.ru_maxrss / 1024 if os.uname().sysname == "Linux" else usage.ru_maxrss  # Linux gives KB
+    logger.info(f"Peak memory usage during annotation/barcode correction/demuxing: {max_rss_mb:.2f} MB")
     logger.info(f"Elapsed time: {time.time() - start:.2f} seconds")
